@@ -229,6 +229,7 @@ function coursePicker(store: Store, p: Parsed): HTMLElement {
     h('h2', null, '2 · Pick courses'),
     h('input', {
       type: 'search',
+      'aria-label': 'Filter courses by code or title',
       placeholder: 'Filter by code or title…',
       value: courseFilter,
       oninput: (e: Event) => {

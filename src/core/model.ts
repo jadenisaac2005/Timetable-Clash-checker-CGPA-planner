@@ -65,6 +65,11 @@ export function hasUnknownTimes(combo: readonly Section[]): boolean {
   return combo.some((s) => s.timesUnknown !== undefined);
 }
 
+/** The code as printed by the university (`code` may carry a " [title]" suffix to keep duplicates apart). */
+export function officialCode(c: Course): string {
+  return c.officialCode ?? c.code;
+}
+
 export function sectionId(courseCode: string, component: string, section: string): string {
   return `${courseCode}|${component}|${section}`;
 }

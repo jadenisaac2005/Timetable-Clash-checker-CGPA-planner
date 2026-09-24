@@ -8,7 +8,8 @@ import { loadTimetableFile } from '../src/import/load';
 import { sectionClash } from '../src/core/clash';
 import { solve } from '../src/core/solver';
 import { formatMeeting } from '../src/core/time';
-import type { Section } from '../src/core/model';
+import { officialCode, type Section } from '../src/core/model';
+import { computeProgress } from '../src/core/curriculum';
 import { comboText, sectionCaveats } from '../src/export';
 
 const XLSX_PATH = new URL('../data/Course_Registration_File_for_the_academic_year_2026_-Fall_Semester_-Student_Copy.xlsx', import.meta.url);
@@ -149,8 +150,15 @@ describe('Fall 2026-27 registration file (real data/ file)', () => {
     expect(c.components[0].sections[0].meetings).toEqual([]);
   });
 
-  it('keeps the two different ECE3036 courses apart', () => {
-    expect(r.courses.filter((c) => c.officialCode === 'ECE3036').map((c) => c.title)).toEqual(['Robotic System Mechanics', 'System and Network on Chip']);
+  it('keeps the two different ECE3036 courses apart, but exports and matches them by the official code', () => {
+    const both = r.courses.filter((c) => c.officialCode === 'ECE3036');
+    expect(both.map((c) => c.title)).toEqual(['Robotic System Mechanics', 'System and Network on Chip']);
+    const txt = comboText([both[0].components[0].sections[0]], r.courses);
+    expect(txt.startsWith('ECE3036\tRobotic System Mechanics\t')).toBe(true);
+    const cur = { name: 'c', baskets: [{ id: 'rob', name: 'Robotics', requiredCredits: 3, courses: ['ECE3036'] }] };
+    const pr = computeProgress(cur, [], both.map((c) => ({ code: officialCode(c), credits: c.credits })));
+    expect(pr.unknownPlanned).toEqual([]);
+    expect(pr.baskets[0].planned).toBe(3);
   });
 
   it('reads slots from mislabelled columns by content', () => {

@@ -1,4 +1,4 @@
-import { DAYS, type Course, type Day, type Section } from './core/model';
+import { DAYS, officialCode, type Course, type Day, type Section } from './core/model';
 import { formatMeeting, formatTime } from './core/time';
 
 export const TIMES_UNKNOWN = 'times unknown — verify on the portal';
@@ -29,7 +29,7 @@ export function comboText(combo: readonly Section[], courses: readonly Course[])
     const known = s.meetings.map(formatMeeting).join('; ');
     const times = s.timesUnknown !== undefined ? [known, TIMES_UNKNOWN].filter(Boolean).join('; ') : known || 'no scheduled class';
     const flag = s.warnings?.length ? '\t(low-confidence slot reading — verify on the portal)' : '';
-    lines.push(`${s.courseCode}\t${c?.title ?? ''}\tSection ${s.section}${comp}\tSlots: ${slots}\t${times}${flag}`);
+    lines.push(`${c ? officialCode(c) : s.courseCode}\t${c?.title ?? ''}\tSection ${s.section}${comp}\tSlots: ${slots}\t${times}${flag}`);
   }
   lines.push('', `Total credits: ${credits}`);
   if (combo.some((s) => s.timesUnknown !== undefined)) lines.push('NOT verified clash-free: some class times are not in the university file.');
@@ -114,7 +114,8 @@ export function drawGrid(canvas: HTMLCanvasElement, combo: readonly Section[], c
       ctx.rect(x, y, colW - 6, h);
       ctx.clip();
       ctx.font = '600 12px system-ui, sans-serif';
-      ctx.fillText(`${s.courseCode} · ${s.section}`, x + 6, y + 11);
+      const course = byCode.get(s.courseCode);
+      ctx.fillText(`${course ? officialCode(course) : s.courseCode} · ${s.section}`, x + 6, y + 11);
       ctx.font = '11px system-ui, sans-serif';
       if (h > 30) ctx.fillText(`${formatTime(m.start)}–${formatTime(m.end)}${m.slot ? ' · ' + m.slot : ''}`, x + 6, y + 26);
       if (h > 46) ctx.fillText(byCode.get(s.courseCode)?.title ?? '', x + 6, y + 40);

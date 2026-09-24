@@ -15,6 +15,7 @@ import {
 import { details, fmt, h } from './dom';
 import { selectedCourses } from './planner';
 import type { Store } from './store';
+import { officialCode } from '../core/model';
 
 /** "[CODE] credits grade" per line. */
 export function parseGradeLines(text: string): { courses: GradedCourse[]; errors: string[] } {
@@ -200,7 +201,7 @@ export function renderCgpa(store: Store): HTMLElement {
           onclick: () =>
             store.update((s) => {
               const existing = new Map(s.cgpa.planned.map((p) => [p.code, p.grade]));
-              s.cgpa.planned = selectedCourses(store).map((x) => ({ code: x.code, credits: x.credits, grade: existing.get(x.code) ?? grades[0] }));
+              s.cgpa.planned = selectedCourses(store).map((x) => ({ code: officialCode(x), credits: x.credits, grade: existing.get(officialCode(x)) ?? grades[0] }));
             }),
         },
         'Fill from Planner selection',

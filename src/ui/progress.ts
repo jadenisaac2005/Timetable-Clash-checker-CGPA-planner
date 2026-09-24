@@ -3,6 +3,7 @@ import example from '../../examples/curriculum.example.json';
 import { h } from './dom';
 import { selectedCourses } from './planner';
 import type { Store } from './store';
+import { officialCode } from '../core/model';
 
 /** "CODE credits" per line; commas, tabs or spaces as separators. */
 export function parseCourseLines(text: string): { courses: CreditedCourse[]; errors: string[] } {
@@ -82,7 +83,8 @@ export function renderProgress(store: Store): HTMLElement {
     completedErrors.length ? h('ul', { class: 'error' }, completedErrors.map((e) => h('li', null, e))) : null,
   );
 
-  const planned = selectedCourses(store).map((c) => ({ code: c.code, credits: c.credits }));
+  // Curriculum lists official codes, so match on those (not on disambiguated keys like "ECE3036 [title]").
+  const planned = selectedCourses(store).map((c) => ({ code: officialCode(c), credits: c.credits }));
   let progressCard: HTMLElement;
   if (!cur) progressCard = h('section', { class: 'card' }, h('h2', null, 'Progress'), h('p', { class: 'muted' }, 'Load a curriculum config to see basket progress.'));
   else {
