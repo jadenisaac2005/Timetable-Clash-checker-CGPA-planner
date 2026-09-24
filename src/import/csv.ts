@@ -1,5 +1,9 @@
-/** Minimal RFC 4180 CSV parser: quoted fields, escaped quotes, CRLF, BOM. Delimiter auto-detected (, ; tab). */
-export function parseCsv(text: string, delimiter?: string): string[][] {
+/**
+ * Minimal RFC 4180 CSV parser: quoted fields, escaped quotes, CRLF, BOM. Delimiter auto-detected (, ; tab).
+ * Blank lines are dropped unless `keepBlank` is set (needed when row numbers must match a spreadsheet);
+ * a single trailing newline never produces a row.
+ */
+export function parseCsv(text: string, delimiter?: string, keepBlank = false): string[][] {
   text = text.replace(/^﻿/, '');
   const delim = delimiter ?? detectDelimiter(text);
   const rows: string[][] = [];
@@ -31,7 +35,7 @@ export function parseCsv(text: string, delimiter?: string): string[][] {
     row.push(field);
     rows.push(row);
   }
-  return rows.filter((r) => r.some((c) => c.trim() !== ''));
+  return keepBlank ? rows : rows.filter((r) => r.some((c) => c.trim() !== ''));
 }
 
 function detectDelimiter(text: string): string {

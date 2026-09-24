@@ -9,6 +9,9 @@ describe('parseCsv', () => {
     const rows = parseCsv('﻿a,b\r\n"x, y","he said ""hi"""\r\n\r\nz,\n');
     expect(rows).toEqual([['a', 'b'], ['x, y', 'he said "hi"'], ['z', '']]);
   });
+  it('can keep blank lines so row numbers match the spreadsheet', () => {
+    expect(parseCsv('a,b\n,\n\nc,d\n', undefined, true)).toEqual([['a', 'b'], ['', ''], [''], ['c', 'd']]);
+  });
   it('detects semicolon and tab delimiters', () => {
     expect(parseCsv('a;b\n1;2')).toEqual([['a', 'b'], ['1', '2']]);
     expect(parseCsv('a\tb\n1\t2')).toEqual([['a', 'b'], ['1', '2']]);

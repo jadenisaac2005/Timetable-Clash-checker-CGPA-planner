@@ -39,7 +39,7 @@ export async function loadTimetableFile(file: FileLike): Promise<TimetableSource
   if (e === 'docx') throw new LoadError('That looks like the slot timetable document. Upload it with "Slot timetable (.docx)" instead; the course list is the .xlsx registration file.');
   if (e === 'pdf') throw new LoadError('PDF timetables are not supported. Use the .xlsx registration file.');
   const text = await file.text();
-  rows = parseCsv(text);
+  rows = parseCsv(text, undefined, true);
   if (looksLikeRegistrationFile(rows)) return { kind: 'university', rows, fileName: file.name };
   return { kind: 'canonical', csv: text, fileName: file.name };
 }
