@@ -1,0 +1,36 @@
+{
+  "name": "Example B.Tech CSE curriculum (fictional — write your own from your programme scheme)",
+  "totalCredits": 160,
+  "baskets": [
+    {
+      "id": "core",
+      "name": "Program Core",
+      "requiredCredits": 70,
+      "courses": ["CSE101", "CSE102", "CSE201", "CSE202", "CSE203", "CSE301", "CSE302", "CSE310", "CSE320", "MAT101", "MAT102", "MAT301"]
+    },
+    {
+      "id": "spec",
+      "name": "Specialisation Electives",
+      "requiredCredits": 18,
+      "courses": ["CSE330", "CSE331", "CSE332", "CSE4*"]
+    },
+    {
+      "id": "oe",
+      "name": "Open Electives",
+      "requiredCredits": 12,
+      "courses": ["OE*"]
+    },
+    {
+      "id": "comm",
+      "name": "Communication & Value Added",
+      "requiredCredits": 6,
+      "courses": ["ENG*", "VAC*"]
+    },
+    {
+      "id": "project",
+      "name": "Projects & Internship",
+      "requiredCredits": 16,
+      "courses": ["CSE499", "CSE599", "INT*"]
+    }
+  ]
+}

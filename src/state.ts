@@ -1,0 +1,130 @@
+import { DEFAULT_SCALE, validateScale, type GradeScale, type PastSemester } from './core/cgpa';
+import { validateCurriculum, type CreditedCourse, type Curriculum } from './core/curriculum';
+import { sanitizeRegistrationRows } from './import/university/registration';
+
+export interface PlannedGrade {
+  code: string;
+  credits: number;
+  grade: string;
+}
+
+export type TimetableSource =
+  /** This tool's canonical CSV (FORMAT.md §2), optionally with a slot map CSV. */
+  | { kind: 'canonical'; csv: string; fileName: string; slotMapCsv?: string; slotMapName?: string }
+  /** The university's registration file as a grid of cell strings, plus an optional uploaded slot grid. */
+  | { kind: 'university'; rows: string[][]; fileName: string; gridRows?: string[][]; gridName?: string };
+
+export interface AppState {
+  version: 1;
+  /** Raw source text is stored and re-parsed on load, so parser fixes apply to saved plans. */
+  timetable: TimetableSource | null;
+  selected: string[];
+  unavailable: string[];
+  /** Section ids of the combination the student picked to view/export. */
+  chosen: string[] | null;
+  maxCredits: number;
+  sortBy: 'default' | 'days' | 'gaps' | 'start' | 'end';
+  curriculum: Curriculum | null;
+  completed: CreditedCourse[];
+  cgpa: {
+    scale: GradeScale;
+    past: PastSemester[];
+    target: number | null;
+    /** Credits left in the whole programme after the past semesters (incl. the planned one). */
+    remainingCredits: number | null;
+    planned: PlannedGrade[];
+  };
+}
+
+export const STORAGE_KEY = 'tccp.plan.v1';
+
+export function defaultState(): AppState {
+  return {
+    version: 1,
+    timetable: null,
+    selected: [],
+    unavailable: [],
+    chosen: null,
+    maxCredits: 26,
+    sortBy: 'default',
+    curriculum: null,
+    completed: [],
+    cgpa: { scale: structuredClone(DEFAULT_SCALE), past: [], target: null, remainingCredits: null, planned: [] },
+  };
+}
+
+/** Merge an untrusted object onto defaults, keeping only fields of the right shape. */
+export function normalizeState(raw: unknown): AppState {
+  const d = defaultState();
+  if (!raw || typeof raw !== 'object') return d;
+  const r = raw as Partial<AppState>;
+  if (r.version !== 1) throw new Error('Unsupported plan file version');
+  const arr = <T>(x: unknown, fallback: T[]): T[] => (Array.isArray(x) ? (x as T[]) : fallback);
+  const tt = r.timetable;
+  return {
+    version: 1,
+    timetable: normalizeTimetable(tt),
+    selected: arr<string>(r.selected, []).filter((x) => typeof x === 'string'),
+    unavailable: arr<string>(r.unavailable, []).filter((x) => typeof x === 'string'),
+    chosen: Array.isArray(r.chosen) ? r.chosen.filter((x) => typeof x === 'string') : null,
+    maxCredits: typeof r.maxCredits === 'number' ? r.maxCredits : d.maxCredits,
+    sortBy: ['default', 'days', 'gaps', 'start', 'end'].includes(r.sortBy as string) ? r.sortBy! : 'default',
+    curriculum: r.curriculum && validateCurriculum(r.curriculum).length === 0 ? r.curriculum : null,
+    completed: arr<CreditedCourse>(r.completed, []).filter((c) => c && typeof c.code === 'string' && num(c.credits)),
+    cgpa: {
+      scale: r.cgpa?.scale && typeof r.cgpa.scale === 'object' && validateScale(r.cgpa.scale).length === 0 && typeof r.cgpa.scale.name === 'string' ? r.cgpa.scale : d.cgpa.scale,
+      past: arr<PastSemester>(r.cgpa?.past, []).filter(isPastSemester),
+      target: num(r.cgpa?.target) ? r.cgpa!.target : null,
+      remainingCredits: num(r.cgpa?.remainingCredits) ? r.cgpa!.remainingCredits : null,
+      planned: arr<PlannedGrade>(r.cgpa?.planned, []).filter(isGraded),
+    },
+  };
+}
+
+const num = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+const isGraded = (c: unknown): c is PlannedGrade => {
+  const o = c as Partial<PlannedGrade> | null;
+  return !!o && typeof o === 'object' && (o.code === undefined || typeof o.code === 'string') && num(o.credits) && typeof o.grade === 'string';
+};
+function isPastSemester(x: unknown): x is PastSemester {
+  const o = x as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object' || (o.label !== undefined && typeof o.label !== 'string')) return false;
+  if (o.kind === 'sgpa') return num(o.sgpa) && num(o.credits);
+  return o.kind === 'courses' && Array.isArray(o.courses) && o.courses.every(isGraded);
+}
+
+const isGrid = (x: unknown): x is string[][] => Array.isArray(x) && x.every((r) => Array.isArray(r) && r.every((c) => typeof c === 'string'));
+
+function normalizeTimetable(tt: unknown): TimetableSource | null {
+  if (!tt || typeof tt !== 'object') return null;
+  const t = tt as Record<string, unknown>;
+  const fileName = String(t.fileName ?? 'timetable');
+  if (t.kind === 'university')
+    return isGrid(t.rows)
+      ? { kind: 'university', rows: sanitizeRegistrationRows(t.rows), fileName, gridRows: isGrid(t.gridRows) ? t.gridRows : undefined, gridName: typeof t.gridName === 'string' ? t.gridName : undefined }
+      : null;
+  // Plans saved before `kind` existed are canonical CSV.
+  if (typeof t.csv !== 'string') return null;
+  return { kind: 'canonical', csv: t.csv, fileName, slotMapCsv: typeof t.slotMapCsv === 'string' ? t.slotMapCsv : undefined, slotMapName: typeof t.slotMapName === 'string' ? t.slotMapName : undefined };
+}
+
+export function loadState(storage?: Pick<Storage, 'getItem'>): AppState {
+  try {
+    // Resolved inside the try: reading localStorage itself can throw (blocked storage).
+    const raw = (storage ?? globalThis.localStorage)?.getItem(STORAGE_KEY);
+    return raw ? normalizeState(JSON.parse(raw)) : defaultState();
+  } catch {
+    return defaultState();
+  }
+}
+
+/** Returns false if storage is unavailable or full; the app keeps working in memory. */
+export function saveState(s: AppState, storage?: Pick<Storage, 'setItem'>): boolean {
+  try {
+    const st = storage ?? globalThis.localStorage;
+    st?.setItem(STORAGE_KEY, JSON.stringify(s));
+    return !!st;
+  } catch {
+    return false;
+  }
+}
