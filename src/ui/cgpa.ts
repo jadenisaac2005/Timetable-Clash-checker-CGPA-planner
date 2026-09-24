@@ -12,7 +12,7 @@ import {
   type PastSemester,
   type Tally,
 } from '../core/cgpa';
-import { fmt, h } from './dom';
+import { details, fmt, h } from './dom';
 import { selectedCourses } from './planner';
 import type { Store } from './store';
 
@@ -158,7 +158,7 @@ export function renderCgpa(store: Store): HTMLElement {
           ? h('p', { class: 'ok' }, `Already secured: even the lowest grade point on every remaining credit leaves you at ${fmt(r.worst)}.`)
           : r.status === 'no-remaining'
             ? h('p', null, `No credits remaining — CGPA is fixed at ${fmt(r.best)}.`)
-            : h('p', null, 'You need an average grade point of ', h('strong', null, fmt(r.required)), ` on the remaining ${c.remainingCredits} credits. Range still possible: ${fmt(r.worst)} – ${fmt(r.best)}.`);
+            : h('p', null, 'You need an average grade point of ', h('strong', null, fmt(r.required)), ` on the remaining ${c.remainingCredits} credits. Final CGPA still possible: ${fmt(r.worst)} (all lowest) to ${fmt(r.best)} (all highest).`);
     targetOut = msg;
   }
   const num = (v: string) => (v.trim() === '' ? null : Number(v));
@@ -261,9 +261,10 @@ export function renderCgpa(store: Store): HTMLElement {
   const scaleCard = h(
     'section',
     { class: 'card' },
-    h(
-      'details',
+    details(
+      'scale',
       null,
+      false,
       h('summary', null, h('strong', null, 'Grade-point scale: '), scale.name),
       h('p', { class: 'warn' }, 'Check this against the grade card or academic regulations for your programme. The default is a common 10-point scale, not necessarily your university\'s.'),
       h('p', { class: 'muted small' }, 'One grade per line: "GRADE points". Add "nc" for grades that carry no credit weight (e.g. audit).'),

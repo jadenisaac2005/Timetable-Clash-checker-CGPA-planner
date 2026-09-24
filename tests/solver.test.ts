@@ -155,6 +155,7 @@ describe('solve — infeasibility diagnosis', () => {
     expect(dg.emptyComponents).toEqual([{ courseCode: 'D', component: 'main', unavailableSections: ['1'] }]);
     expect(dg.minimalConflict).toEqual(['D']);
     expect(dg.culprits).toEqual(['D']);
+    expect(dg.pairwise).toEqual([]);
   });
 
   it('diagnoses a TEL course whose own theory and lab can never fit', () => {

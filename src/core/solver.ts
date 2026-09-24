@@ -151,10 +151,14 @@ export function diagnose(courses: readonly Course[], unavailable: ReadonlySet<st
       ? courses.filter((c) => isFeasible(courses.filter((x) => x !== c), unavailable)).map((c) => c.code)
       : courses.map((c) => c.code);
 
+  // Courses that are infeasible on their own (no section left, or TEL parts that never fit)
+  // would pair with everything; leave them out so the pair list stays meaningful.
+  const alone = new Set(courses.filter((c) => !isFeasible([c], unavailable)));
   const pairwise: { a: string; b: string }[] = [];
   for (let i = 0; i < courses.length; i++)
     for (let j = i + 1; j < courses.length; j++)
-      if (!isFeasible([courses[i], courses[j]], unavailable)) pairwise.push({ a: courses[i].code, b: courses[j].code });
+      if (!alone.has(courses[i]) && !alone.has(courses[j]) && !isFeasible([courses[i], courses[j]], unavailable))
+        pairwise.push({ a: courses[i].code, b: courses[j].code });
 
   const blockingClashes: SectionClash[] = [];
   const avail = (c: Course) => c.components.flatMap((comp) => comp.sections.filter((s) => !unavailable.has(s.id)));

@@ -4,7 +4,7 @@ import { findClashes } from '../core/clash';
 import { formatMeeting, formatTime } from '../core/time';
 import { colorFor, comboText, download, drawGrid, gridLayout } from '../export';
 import sampleCsv from '../../examples/sample-timetable.csv?raw';
-import { h } from './dom';
+import { details, h } from './dom';
 import type { Parsed, Store } from './store';
 
 const STORE_LIMIT = 5000;
@@ -104,7 +104,7 @@ function importCard(store: Store, p: Parsed | null): HTMLElement {
 }
 
 function issueList(kind: 'error' | 'warn', title: string, items: string[]): HTMLElement {
-  return h('details', { class: `issues ${kind}` }, h('summary', null, title), h('ul', null, items.slice(0, 200).map((i) => h('li', null, i))), items.length > 200 ? h('p', null, `…and ${items.length - 200} more`) : null);
+  return details(`issues-${kind}`, { class: `issues ${kind}` }, false, h('summary', null, title), h('ul', null, items.slice(0, 200).map((i) => h('li', null, i))), items.length > 200 ? h('p', null, `…and ${items.length - 200} more`) : null);
 }
 
 function coursePicker(store: Store, p: Parsed): HTMLElement {
@@ -186,9 +186,10 @@ function sectionsCard(store: Store, _p: Parsed): HTMLElement {
     h('h2', null, '3 · Sections'),
     h('p', { class: 'muted' }, 'Untick a section that is full or missing on the live portal. Results update immediately.'),
     selectedCourses(store).map((c) =>
-      h(
-        'details',
+      details(
+        `sec-${c.code}`,
         { class: 'sections' },
+        false,
         h('summary', null, h('span', { class: 'code' }, c.code), ` ${c.title} `, h('span', { class: 'muted' }, `(${c.components.reduce((t, x) => t + x.sections.filter((s) => !unavailable.has(s.id)).length, 0)} available)`)),
         c.components.map((comp) =>
           h(
@@ -316,9 +317,10 @@ function diagnosisView(result: SolveResult, p: Parsed): HTMLElement {
     d.pairwise.length ? h('div', null, h('h4', null, 'Pairs that can never be taken together'), h('ul', null, d.pairwise.map((x) => h('li', null, `${x.a} ✕ ${x.b}`)))) : null,
     h('h4', null, `Smallest conflicting group: ${d.minimalConflict.join(', ')}`),
     d.blockingClashes.length
-      ? h(
-          'details',
-          { open: d.blockingClashes.length <= 12 },
+      ? details(
+          'blocking',
+          null,
+          d.blockingClashes.length <= 12,
           h('summary', null, `${d.blockingClashes.length} section clash(es) in that group`),
           h(
             'ul',

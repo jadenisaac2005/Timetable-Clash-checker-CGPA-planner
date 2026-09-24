@@ -26,3 +26,17 @@ export function readFileText(file: File): Promise<string> {
 export function fmt(n: number | null | undefined, digits = 2): string {
   return n === null || n === undefined || !Number.isFinite(n) ? '—' : n.toFixed(digits);
 }
+
+const openDetails = new Set<string>();
+
+/** <details> whose open/closed state survives re-renders. `defaultOpen` applies until the user toggles it. */
+export function details(key: string, props: Props | null, defaultOpen: boolean, ...children: (Child | Child[])[]): HTMLDetailsElement {
+  const known = openDetails.has(key) || openDetails.has(`!${key}`);
+  const el = h('details', { ...props, open: known ? openDetails.has(key) : defaultOpen }, ...children);
+  el.addEventListener('toggle', () => {
+    openDetails.delete(key);
+    openDetails.delete(`!${key}`);
+    openDetails.add(el.open ? key : `!${key}`);
+  });
+  return el;
+}
