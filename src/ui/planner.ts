@@ -5,6 +5,7 @@ import { formatMeeting, formatTime } from '../core/time';
 import { colorFor, comboText, download, drawGrid, gridLayout } from '../export';
 import sampleCsv from '../../examples/sample-timetable.csv?raw';
 import { details, h } from './dom';
+import { LoadError, loadSlotGridFile, loadTimetableFile } from '../import/load';
 import type { Parsed, Store } from './store';
 
 const STORE_LIMIT = 5000;
@@ -16,7 +17,7 @@ let shown = PAGE;
 let courseFilter = '';
 
 function solveFor(store: Store, courses: Course[]) {
-  const key = `${store.state.timetable?.csv.length}|${store.state.timetable?.fileName}|${courses.map((c) => c.code).join(',')}|${store.state.unavailable.join(',')}`;
+  const key = `${store.parsed?.sectionsById.size}|${store.state.timetable?.fileName}|${store.state.timetable?.kind === 'university' ? store.state.timetable.gridName : ''}|${courses.map((c) => c.code).join(',')}|${store.state.unavailable.join(',')}`;
   if (key !== solveKey || !solveCache) {
     solveKey = key;
     shown = PAGE;
@@ -39,46 +40,84 @@ export function renderPlanner(store: Store): HTMLElement {
 
 function importCard(store: Store, p: Parsed | null): HTMLElement {
   const tt = store.state.timetable;
+  const status = h('p', { class: 'muted small', 'aria-live': 'polite' });
   const onTimetable = async (e: Event) => {
-    const f = (e.target as HTMLInputElement).files?.[0];
+    const input = e.target as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = '';
     if (!f) return;
-    if (/\.(xlsx|xls|ods|pdf)$/i.test(f.name)) {
-      alert(
-        'This tool reads the canonical CSV described in FORMAT.md. A direct importer for the university file has not been written yet because its format has not been documented. Open the file in a spreadsheet app, arrange the columns as in FORMAT.md, and save as CSV.',
-      );
-      return;
+    status.textContent = `Reading ${f.name}…`;
+    try {
+      const source = await loadTimetableFile(f);
+      store.update((s) => {
+        // Keep an uploaded slot grid / slot map when replacing the course list.
+        const prev = s.timetable;
+        if (source.kind === 'university' && prev?.kind === 'university' && prev.gridRows) Object.assign(source, { gridRows: prev.gridRows, gridName: prev.gridName });
+        if (source.kind === 'canonical' && prev?.kind === 'canonical' && prev.slotMapCsv) Object.assign(source, { slotMapCsv: prev.slotMapCsv, slotMapName: prev.slotMapName });
+        s.timetable = source;
+        s.chosen = null;
+      });
+    } catch (err) {
+      status.textContent = '';
+      alert(err instanceof LoadError ? err.message : `Could not read ${f.name}: ${(err as Error).message}`);
     }
-    const csv = await f.text();
-    store.update((s) => {
-      s.timetable = { csv, fileName: f.name, slotMapCsv: s.timetable?.slotMapCsv, slotMapName: s.timetable?.slotMapName };
-      s.chosen = null;
-    });
   };
-  const onSlotMap = async (e: Event) => {
-    const f = (e.target as HTMLInputElement).files?.[0];
-    if (!f || !store.state.timetable) return;
-    const text = await f.text();
-    store.update((s) => {
-      s.timetable = { ...s.timetable!, slotMapCsv: text, slotMapName: f.name };
-    });
+  const onSlotFile = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = '';
+    const cur = store.state.timetable;
+    if (!f || !cur) return;
+    try {
+      if (cur.kind === 'university') {
+        const gridRows = await loadSlotGridFile(f);
+        store.update((s) => void (s.timetable = { ...(s.timetable as typeof cur), gridRows, gridName: f.name }));
+      } else {
+        const text = await f.text();
+        store.update((s) => void (s.timetable = { ...(s.timetable as typeof cur), slotMapCsv: text, slotMapName: f.name }));
+      }
+    } catch (err) {
+      alert(err instanceof LoadError ? err.message : `Could not read ${f.name}: ${(err as Error).message}`);
+    }
   };
+  const slotLabel =
+    tt?.kind === 'university'
+      ? tt.gridName
+        ? 'Replace slot timetable (.docx)'
+        : 'Use a different slot timetable (.docx)'
+      : tt?.slotMapName
+        ? 'Replace slot map'
+        : 'Add slot map (optional)';
+  const sourceLine =
+    tt?.kind === 'university'
+      ? ` · slot times from ${tt.gridName ?? 'the built-in Fall 2026-27 slot timetable'}`
+      : tt?.slotMapName
+        ? ` + slot map ${tt.slotMapName}`
+        : '';
   return h(
     'section',
     { class: 'card' },
     h('h2', null, '1 · Import timetable'),
-    h('p', { class: 'muted' }, 'CSV in the canonical format (see FORMAT.md). Parsed entirely in your browser — nothing is uploaded.'),
+    h(
+      'p',
+      { class: 'muted' },
+      'Upload the Course Registration File exactly as the university publishes it (.xlsx, or a .csv saved from it). Slot names are turned into real times with the slot timetable; the Fall 2026-27 one is built in. Files are read in your browser and never uploaded.',
+    ),
     h(
       'div',
       { class: 'row wrap' },
-      h('label', { class: 'btn' }, 'Choose timetable CSV', h('input', { type: 'file', accept: '.csv,.tsv,.txt,.xlsx,.xls', hidden: true, onchange: onTimetable })),
-      tt ? h('label', { class: 'btn secondary' }, tt.slotMapName ? 'Replace slot map' : 'Add slot map (optional)', h('input', { type: 'file', accept: '.csv,.tsv,.txt', hidden: true, onchange: onSlotMap })) : null,
+      h('label', { class: 'btn' }, 'Choose registration file', h('input', { type: 'file', accept: '.xlsx,.xls,.ods,.csv,.tsv,.txt', hidden: true, onchange: onTimetable })),
+      tt ? h('label', { class: 'btn secondary' }, slotLabel, h('input', { type: 'file', accept: tt.kind === 'university' ? '.docx' : '.csv,.tsv,.txt', hidden: true, onchange: onSlotFile })) : null,
+      tt?.kind === 'university' && tt.gridName
+        ? h('button', { class: 'btn ghost', onclick: () => store.update((s) => void (s.timetable = { ...(s.timetable as typeof tt), gridRows: undefined, gridName: undefined })) }, 'Use built-in slot times')
+        : null,
       h(
         'button',
         {
           class: 'btn secondary',
           onclick: () =>
             store.update((s) => {
-              s.timetable = { csv: sampleCsv, fileName: 'sample-timetable.csv (synthetic)' };
+              s.timetable = { kind: 'canonical', csv: sampleCsv, fileName: 'sample-timetable.csv (synthetic)' };
               s.selected = [];
               s.unavailable = [];
               s.chosen = null;
@@ -88,23 +127,48 @@ function importCard(store: Store, p: Parsed | null): HTMLElement {
       ),
       tt ? h('button', { class: 'btn ghost', onclick: () => confirm('Remove the loaded timetable?') && store.update((s) => void ((s.timetable = null), (s.chosen = null))) }, 'Clear') : null,
     ),
-    tt
-      ? h(
-          'p',
-          null,
-          h('strong', null, tt.fileName),
-          tt.slotMapName ? ` + slot map ${tt.slotMapName}` : '',
-          p && !p.fatal ? ` — ${p.courses.length} courses, ${p.sectionsById.size} sections` : '',
-        )
-      : null,
+    status,
+    tt ? h('p', null, h('strong', null, tt.fileName), sourceLine, p && !p.fatal ? ` — ${p.courses.length} courses, ${p.sectionsById.size} sections` : '') : null,
     p?.fatal ? h('p', { class: 'error' }, p.fatal) : null,
-    p && p.errors.length ? issueList('error', `${p.errors.length} row(s) could not be read and were skipped`, p.errors) : null,
-    p && p.warnings.length ? issueList('warn', `${p.warnings.length} warning(s)`, p.warnings) : null,
+    p?.stats ? statsView(p) : null,
+    p && p.errors.length ? issueList('error', `${p.errors.length} error(s)`, p.errors) : null,
+    p && p.warnings.length ? issueList('warn', `${p.warnings.length} warning(s) — check these rows on the portal`, p.warnings) : null,
+    p?.gridNotes?.length ? issueList('note', 'How the slot times were read', p.gridNotes) : null,
   );
 }
 
-function issueList(kind: 'error' | 'warn', title: string, items: string[]): HTMLElement {
-  return details(`issues-${kind}`, { class: `issues ${kind}` }, false, h('summary', null, title), h('ul', null, items.slice(0, 200).map((i) => h('li', null, i))), items.length > 200 ? h('p', null, `…and ${items.length - 200} more`) : null);
+function statsView(p: Parsed): HTMLElement {
+  const st = p.stats!;
+  return h(
+    'div',
+    { class: 'small' },
+    h(
+      'p',
+      null,
+      `${st.totalRows} rows read: ${st.dataRows} course rows (${st.importedRows} imported, `,
+      h('span', { class: st.skipped.length ? 'error' : '' }, `${st.skipped.length} skipped`),
+      `), ${st.headerRows.length} table headers, ${st.headingRows.length} sub-headings, ${st.blankRows} blank.`,
+      st.normalizations.length ? ` ${st.normalizations.length} slot spellings were corrected.` : '',
+    ),
+    st.skipped.length
+      ? issueList(
+          'error',
+          `${st.skipped.length} row(s) skipped — these offerings are not in the planner`,
+          st.skipped.map((x) => `Row ${x.row} ${x.code}: ${x.reason}`),
+        )
+      : null,
+    st.normalizations.length
+      ? issueList(
+          'fix',
+          `${st.normalizations.length} slot spelling(s) corrected`,
+          st.normalizations.map((x) => `Row ${x.row} ${x.code}: "${x.from}" read as ${x.to} (${x.why})`),
+        )
+      : null,
+  );
+}
+
+function issueList(kind: 'error' | 'warn' | 'fix' | 'note', title: string, items: string[]): HTMLElement {
+  return details(`issues-${kind}-${title.replace(/\d+/g, '')}`, { class: `issues ${kind}` }, false, h('summary', null, title), h('ul', null, items.slice(0, 200).map((i) => h('li', null, i))), items.length > 200 ? h('p', null, `…and ${items.length - 200} more`) : null);
 }
 
 function coursePicker(store: Store, p: Parsed): HTMLElement {
@@ -118,6 +182,7 @@ function coursePicker(store: Store, p: Parsed): HTMLElement {
     for (const c of p.courses) {
       if (q && !`${c.code} ${c.title}`.toLowerCase().includes(q)) continue;
       const nSec = c.components.map((x) => x.sections.length).join('+');
+      const cat = [c.category, c.audience].filter(Boolean).join(' · ');
       list.append(
         h(
           'li',
@@ -136,7 +201,7 @@ function coursePicker(store: Store, p: Parsed): HTMLElement {
             }),
             h('span', { class: 'code' }, c.code),
             h('span', { class: 'title' }, c.title),
-            h('span', { class: 'meta' }, `${c.credits} cr · ${c.type} · ${nSec} sec`),
+            h('span', { class: 'meta' }, `${c.credits} cr · ${c.type} · ${nSec} sec${cat ? ' · ' + cat : ''}`),
           ),
         ),
       );
@@ -227,6 +292,7 @@ function describeSection(s: Section): string {
   const parts = [s.meetings.length ? s.meetings.map(formatMeeting).join(', ') : 'no scheduled class'];
   if (s.slots.length) parts.push(`slots ${s.slots.join(', ')}`);
   if (s.faculty) parts.push(s.faculty);
+  if (s.rows?.length) parts.push(`${s.rows.length > 1 ? 'rows' : 'row'} ${s.rows.join(', ')} of the file`);
   return parts.join(' · ');
 }
 

@@ -1,10 +1,18 @@
 import type { Course, Section, Timetable } from '../core/model';
 import { ImportError, parseCanonicalCsv, parseSlotMap } from '../import/canonical';
+import { parseSlotGrid } from '../import/university/slotGrid';
+import { FALL_2026_27_SLOT_TABLE } from '../import/university/fall2026Grid';
+import { parseRegistrationRows, type ImportStats } from '../import/university/registration';
+import type { TimetableSource } from '../state';
 import { loadState, saveState, type AppState } from '../state';
 
 export interface Parsed extends Timetable {
   errors: string[];
   fatal: string | null;
+  /** Row-level statistics (university registration file only). */
+  stats?: ImportStats;
+  /** Notes from reading the slot grid (e.g. how 12-hour times were resolved). */
+  gridNotes?: string[];
   byCode: Map<string, Course>;
   sectionsById: Map<string, Section>;
 }
@@ -33,17 +41,29 @@ export class Store {
   get parsed(): Parsed | null {
     const tt = this.state.timetable;
     if (!tt) return null;
-    const key = `${tt.csv}\u0000${tt.slotMapCsv ?? ''}`;
+    const key = tt.kind === 'university' ? `u\u0000${JSON.stringify(tt.rows)}\u0000${JSON.stringify(tt.gridRows ?? null)}` : `c\u0000${tt.csv}\u0000${tt.slotMapCsv ?? ''}`;
     if (key !== this.parseKey) {
       this.parseKey = key;
-      this.parsedCache = parse(tt.csv, tt.slotMapCsv);
+      this.parsedCache = parse(tt);
     }
     return this.parsedCache;
   }
 }
 
-function parse(csv: string, slotMapCsv?: string): Parsed {
+function index(t: { courses: Course[] }) {
+  const sectionsById = new Map<string, Section>();
+  for (const c of t.courses) for (const comp of c.components) for (const s of comp.sections) sectionsById.set(s.id, s);
+  return { byCode: new Map(t.courses.map((c) => [c.code, c])), sectionsById };
+}
+
+function parse(tt: TimetableSource): Parsed {
   const empty = { courses: [], warnings: [], errors: [], byCode: new Map(), sectionsById: new Map() };
+  if (tt.kind === 'university') {
+    const grid = parseSlotGrid(tt.gridRows ?? FALL_2026_27_SLOT_TABLE);
+    const r = parseRegistrationRows(tt.rows, grid);
+    return { ...r, fatal: r.stats.dataRows ? null : 'No course rows found. Is this the course registration file?', gridNotes: grid.notes, ...index(r) };
+  }
+  const { csv, slotMapCsv } = tt;
   try {
     let slotMap;
     const errors: string[] = [];
@@ -53,9 +73,7 @@ function parse(csv: string, slotMapCsv?: string): Parsed {
       errors.push(...sm.errors);
     }
     const t = parseCanonicalCsv(csv, slotMap);
-    const sectionsById = new Map<string, Section>();
-    for (const c of t.courses) for (const comp of c.components) for (const s of comp.sections) sectionsById.set(s.id, s);
-    return { ...t, errors: [...errors, ...t.errors], fatal: null, byCode: new Map(t.courses.map((c) => [c.code, c])), sectionsById };
+    return { ...t, errors: [...errors, ...t.errors], fatal: null, ...index(t) };
   } catch (e) {
     return { ...empty, fatal: e instanceof ImportError ? e.message : `Could not read file: ${(e as Error).message}` };
   }

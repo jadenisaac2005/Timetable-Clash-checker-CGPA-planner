@@ -85,6 +85,7 @@ li.struck span { text-decoration: line-through; color: var(--muted); }
 details.issues { margin-top: 8px; font-size: 0.85rem; }
 details.issues.error summary { color: var(--danger); }
 details.issues.warn summary { color: var(--warn); }
+details.issues.fix summary, details.issues.note summary { color: var(--muted); }
 .combos { padding-left: 22px; margin: 10px 0; }
 .combos li { padding: 8px 6px; border-bottom: 1px solid var(--border); }
 .combos li.active { background: var(--accent-soft); border-radius: 6px; }

@@ -7,10 +7,16 @@ export interface PlannedGrade {
   grade: string;
 }
 
+export type TimetableSource =
+  /** This tool's canonical CSV (FORMAT.md §2), optionally with a slot map CSV. */
+  | { kind: 'canonical'; csv: string; fileName: string; slotMapCsv?: string; slotMapName?: string }
+  /** The university's registration file as a grid of cell strings, plus an optional uploaded slot grid. */
+  | { kind: 'university'; rows: string[][]; fileName: string; gridRows?: string[][]; gridName?: string };
+
 export interface AppState {
   version: 1;
   /** Raw source text is stored and re-parsed on load, so parser fixes apply to saved plans. */
-  timetable: { csv: string; fileName: string; slotMapCsv?: string; slotMapName?: string } | null;
+  timetable: TimetableSource | null;
   selected: string[];
   unavailable: string[];
   /** Section ids of the combination the student picked to view/export. */
@@ -56,10 +62,7 @@ export function normalizeState(raw: unknown): AppState {
   const tt = r.timetable;
   return {
     version: 1,
-    timetable:
-      tt && typeof tt.csv === 'string'
-        ? { csv: tt.csv, fileName: String(tt.fileName ?? 'timetable.csv'), slotMapCsv: typeof tt.slotMapCsv === 'string' ? tt.slotMapCsv : undefined, slotMapName: tt.slotMapName }
-        : null,
+    timetable: normalizeTimetable(tt),
     selected: arr<string>(r.selected, []).filter((x) => typeof x === 'string'),
     unavailable: arr<string>(r.unavailable, []).filter((x) => typeof x === 'string'),
     chosen: Array.isArray(r.chosen) ? r.chosen.filter((x) => typeof x === 'string') : null,
@@ -75,6 +78,21 @@ export function normalizeState(raw: unknown): AppState {
       planned: arr<PlannedGrade>(r.cgpa?.planned, []),
     },
   };
+}
+
+const isGrid = (x: unknown): x is string[][] => Array.isArray(x) && x.every((r) => Array.isArray(r) && r.every((c) => typeof c === 'string'));
+
+function normalizeTimetable(tt: unknown): TimetableSource | null {
+  if (!tt || typeof tt !== 'object') return null;
+  const t = tt as Record<string, unknown>;
+  const fileName = String(t.fileName ?? 'timetable');
+  if (t.kind === 'university')
+    return isGrid(t.rows)
+      ? { kind: 'university', rows: t.rows, fileName, gridRows: isGrid(t.gridRows) ? t.gridRows : undefined, gridName: typeof t.gridName === 'string' ? t.gridName : undefined }
+      : null;
+  // Plans saved before `kind` existed are canonical CSV.
+  if (typeof t.csv !== 'string') return null;
+  return { kind: 'canonical', csv: t.csv, fileName, slotMapCsv: typeof t.slotMapCsv === 'string' ? t.slotMapCsv : undefined, slotMapName: typeof t.slotMapName === 'string' ? t.slotMapName : undefined };
 }
 
 export function loadState(storage: Pick<Storage, 'getItem'> | undefined = globalThis.localStorage): AppState {
