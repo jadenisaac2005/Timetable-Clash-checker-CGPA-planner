@@ -50,14 +50,19 @@ A student can only tell offerings apart by their slots, so the importer makes **
 
 - **Theory slots**, from the grid: `A1`–`G2` (`A1, A2, B1, B2, …, G1, G2`) and `TA1, TA2, TB1, TB2, TC1, TC2`. A cell can combine several with `+`: `D1+TA1` (row 150), `E1+TC1` (rows 154, 159, 162).
 - **Lab slots** `L1`–`L40` always appear as pairs `L<odd>+L<odd+1>`, one 100-minute block. A cell can hold several blocks separated by `,` (row 2: `L25+L26,L39+L40`), `" , "` (row 116) or `&` (row 164: `L9+L10 &L1+L2`).
-- **Irregular spellings.** Each has exactly one reading. The importer accepts it, corrects it and **lists it in the import report**:
+- **Irregular spellings.** The importer corrects them, **lists each one in the import report** with a confidence level, and puts a **visible warning on every section that uses a low-confidence reading**. The warning appears in the section list, the results, the timetable, the text export and the PNG.
 
-  | row | cell | read as | why |
-  |---|---|---|---|
-  | 9 (CSE1017) | `31+32` | L31+L32 | no `L` — but it's in the Lab slot column, and no theory slot is named 31 |
-  | 19 (CSE2046) | `L15+16` | L15+L16 | second `L` missing |
-  | 171, 172, 173 (SSK2002) | `L35 +36`, `L23 +24`, `L19+ 20` | L35+L36, L23+L24, L19+L20 | second `L` missing, stray spaces |
-  | 186–189 (KAN1005) | `L21-L22`, `L11-L12`, `L33-L34`, `L39-L40` | L21+L22, … | hyphen instead of `+` |
+  | row | raw cell | read as | confidence | why |
+  |---|---|---|---|---|
+  | 9 (CSE1017) | `31+32` | L31+L32 | **low** | no `L` at all; read as a lab slot only because it's in the Lab slot column and no theory slot is named 31 |
+  | 19 (CSE2046) | `L15+16` | L15+L16 | high | second `L` missing |
+  | 171 (SSK2002) | `L35 +36` | L35+L36 | high | second `L` missing, stray space |
+  | 172 (SSK2002) | `L23 +24` | L23+L24 | high | second `L` missing, stray space |
+  | 173 (SSK2002) | `L19+ 20` | L19+L20 | high | second `L` missing, stray space |
+  | 186 (KAN1005) | `L21-L22` | L21+L22 | high | hyphen instead of `+` |
+  | 187 (KAN1005) | `L11-L12` | L11+L12 | high | hyphen instead of `+` |
+  | 188 (KAN1005) | `L33-L34` | L33+L34 | high | hyphen instead of `+` |
+  | 189 (KAN1005) | `L39-L40` | L39+L40 | high | hyphen instead of `+` |
 
   Any other lab-slot shape is rejected, e.g. a non-consecutive pair or a number outside 1–40.
 
@@ -75,12 +80,12 @@ Courses with `P = 4` (e.g. CSE1017, ECE1010) have two lab blocks per row. Lab-on
 #### Project courses and rows without a slot
 
 - **Only one row is marked as a project:** row 82, ECE3026 *Building Robots*, `L 0 · P 0 · C 3`. Its theory slot is blank and its lab-slot cell reads `(PROJECT BASED COURSE-  NO SLOTS ARE REQUIRED)`. The importer recognises that marker and imports the course with no meetings, so it never clashes.
-- **Rows with no slot at all, and not marked as a project**, are **skipped and listed**. The importer doesn't guess their times:
+- **Rows with no slot at all, and not marked as a project**, are imported as **"times unknown"**. The importer doesn't guess their times. Such a course can be selected, but a combination that includes it is **never counted as clash-free**, and every result containing it says *times unknown — verify on the portal*. Identical rows merge into one `Times unknown` section, with the source rows listed. The rows:
   - KAN1004 (rows 190–195)
   - FRE1002 (rows 196, 198, 204, 206, 207, 209, 211)
-  - `FRE1002/SPA1001` (rows 197, 199–203, 205, 208, 210). This code also names two courses in one cell.
+  - `FRE1002/SPA1001` (rows 197, 199–203, 205, 208, 210). This code names two courses in one cell; it's imported as one course with that code, and a warning.
   - POS1045/POS1044 (rows 213–214). Their `Lab Slot` column holds a room number, not a slot (blanked in the committed copy), and `Faculty_Lab` holds `Open Elective`.
-- **Theory slot blank but `L > 0`**, so the class times are unknown: row 38 (CSE2007, Sl. No. 37) and row 52 (CSE1035, Sl. No. 53). Both have a lab slot. These rows are skipped and listed.
+- **Theory slot blank but `L > 0`**: row 38 (CSE2007, Sl. No. 37) and row 52 (CSE1035, Sl. No. 53). Both are imported as "times unknown", but **keep their known lab time**, so a real clash with that lab is still caught. Their sections are named `theory slot unknown · L33+L34` and `theory slot unknown · L17+L18`.
 
 #### Other things the file does that the importer reports as warnings
 
@@ -124,8 +129,9 @@ The Fall 2026-27 grid is built into the app (`src/import/university/fall2026Grid
 ### 1.3 Parse result for the Fall 2026-27 file
 
 - **Rows:** 214 read: 5 table headers, 3 sub-headings, 3 blank and 203 course rows.
-- **Imported: 177 course rows**, giving 58 courses and 162 sections. 9 slot spellings were corrected (table above).
-- **Skipped: 26 course rows**, all listed above: 6 KAN1004, 16 FRE1002 or FRE1002/SPA1001, 2 POS, and 2 with a blank theory slot.
+- **Imported: all 203 course rows**, giving 63 courses and 169 sections. 9 slot spellings were corrected (table above; 1 low confidence).
+- **Times unknown: 26 of those rows**, all listed above: 6 KAN1004, 16 FRE1002 or FRE1002/SPA1001, 2 POS, and 2 with a blank theory slot.
+- **Skipped: 0 rows.**
 - **The regression test** checks these numbers, a hand-counted section count for several courses, and real clashes from the file: see `tests/university.test.ts`.
 
 ## 2. Canonical timetable CSV (this tool's own format)

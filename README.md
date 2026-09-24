@@ -40,7 +40,7 @@ All screenshots use the **synthetic** sample in `examples/`. It's made-up data, 
 
 1. Download the **Course Registration File** (.xlsx) as the university publishes it. Don't edit it.
 2. Open the planner, click **Choose registration file** and pick it. Slot names are turned into real times using the Fall 2026-27 slot timetable, which is built in. For a later semester, also load that semester's **slot timetable .docx**.
-3. Read the import summary. **Skipped rows** are offerings whose times aren't in the file, such as courses with no slot at all. They aren't in the planner, so check them on the portal. **Corrected slot spellings** and **warnings** point to rows worth double-checking.
+3. Read the import summary. Some offerings have no class times in the file (e.g. courses with no slot at all); they're marked **times unknown**. You can still pick them, but any result that includes one is **not verified clash-free**, so check it on the portal. **Corrected slot spellings** (with a confidence level) and **warnings** point to rows worth double-checking.
 4. Tick the courses you want. Set **Max credits** to your programme's limit so you get a warning if you go over.
 5. Look through the clash-free combinations. Sort by *fewest days*, *fewest gaps*, *latest first class* or *earliest last class*. Click **View** on the ones you like.
 6. For the one you'd register with, **Download text list** or **Copy text list**. It has the course code, section and slots for each course, ready to copy into the official form. Save the **PNG** too.
@@ -187,7 +187,7 @@ examples/       synthetic timetable + fictional curriculum
   - the what-if projection
 - **Real university files** (`tests/university.test.ts`, `tests/slotgrid.test.ts`):
   - reads the actual `.docx` and `.xlsx` in `data/`
-  - checks every row is accounted for (read, skipped with a reason, or corrected)
+  - checks every row is accounted for (imported, imported as "times unknown", or skipped with a reason)
   - checks hand-counted section numbers per course
   - checks real clashes: lab `L3+L4` over theory `D1`, and over `TC1` by a partial overlap
   - checks that 12-hour times without AM/PM are read as afternoon
@@ -201,6 +201,6 @@ examples/       synthetic timetable + fictional curriculum
 
 ## What the importer won't guess
 
-Rows where the file doesn't give class times are skipped and listed in the import summary, not guessed. [FORMAT.md](FORMAT.md) §1 names every such row in the Fall 2026-27 file.
+When the file doesn't give class times, the importer doesn't guess them. The offering is imported as **times unknown**: you can still pick it, but any combination that includes it is never counted as clash-free. Only courses the file explicitly marks as projects are treated as never clashing. Low-confidence slot spellings carry a warning wherever they appear. [FORMAT.md](FORMAT.md) §1 lists every such row in the Fall 2026-27 file.
 
 No university logos or branding are used.
