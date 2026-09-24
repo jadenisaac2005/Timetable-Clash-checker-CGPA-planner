@@ -11,6 +11,8 @@ Two files, both in `data/`:
 
 Neither file has times and slot names together. Every class time comes from looking a slot name up in the grid.
 
+> **The committed copies are redacted.** Faculty names (xlsx cells I170–I184 and I186–I189), room numbers (H213–H214) and the author/last-modified-by fields of both files have been blanked. Nothing else is changed. The importer ignores these cells anyway: it never stores, shows or quotes faculty, room or other free text from the slot columns.
+
 "Row N" below is the 1-based spreadsheet row number, as Excel shows it. The importer uses the same numbers in its messages. "Sl. No." is the file's own serial number, which is **not** unique: it restarts in every table and has gaps.
 
 ### 1.1 Registration workbook (.xlsx)
@@ -28,8 +30,8 @@ One sheet, `Student Data`. Its used range is `A1:R214`, but columns J–R are em
 - **Hours and credits.** The lecture-hours column is headed `L` in the first table and `T` in the others. `P` is weekly practical hours and `C` is credits. All are plain integers.
 - **The labels after `C` can't be trusted.**
   - In the table at row 149, the column headed `Theory Venue` holds **theory slots**, e.g. row 150 `D1+TA1`.
-  - In the table at row 169, the same `Theory Venue` column holds **lab slots** (row 170 `L11+L12`), and the column headed `Lab Slot` holds **faculty names** (row 170 `[name removed]`).
-  - The importer therefore decides what each cell after `C` is by its **content**: a theory-slot expression, a lab-slot expression, the project marker, or other text such as faculty or venue. It reports every table whose header disagrees.
+  - In the table at row 169, the same `Theory Venue` column holds **lab slots** (row 170 `L11+L12`), and the column headed `Lab Slot` holds **faculty names** (removed from the committed copy).
+  - The importer therefore decides what each cell after `C` is by its **content**: a theory-slot expression, a lab-slot expression, the project marker, or other text. Other text (faculty, venue, notes) is ignored. It reports every table whose header disagrees.
 - **Sub-headings.** Three rows have text but no course code, and mark who the following rows are for:
   - row 125: `5th Sem 3rd year ECE/ECE(EVT)/ES&VLSI one batch (lab)` (merged `A125:C125`)
   - row 133: `3rd Sem 2nd year ECE/ECE(EVT)/ES&VLSI` (in column B; E–G hold non-breaking spaces)
@@ -40,9 +42,9 @@ One sheet, `Student Data`. Its used range is `A1:R214`, but columns J–R are em
 
 #### Sections
 
-There is **no section or batch identifier column**. Each data row is one offering. Several rows can be identical apart from Sl. No. — for example, rows 26 and 34 are both CSE2001 `A2` + `L3+L4`. Rows 170 and 174 are both SSK2002 `L11+L12`, with different faculty.
+There is **no section or batch identifier column**. Each data row is one offering. Several rows can be identical apart from Sl. No. — for example, rows 26 and 34 are both CSE2001 `A2` + `L3+L4`. Rows 170 and 174 are both SSK2002 `L11+L12`.
 
-A student can only tell offerings apart by their slots, so the importer makes **one section per distinct slot combination**. It names the section by its slots (e.g. `A2 · L3+L4`) and lists the source rows and any faculty.
+A student can only tell offerings apart by their slots, so the importer makes **one section per distinct slot combination**. It names the section by its slots (e.g. `A2 · L3+L4`) and lists the source rows.
 
 #### Slot names
 
@@ -77,7 +79,7 @@ Courses with `P = 4` (e.g. CSE1017, ECE1010) have two lab blocks per row. Lab-on
   - KAN1004 (rows 190–195)
   - FRE1002 (rows 196, 198, 204, 206, 207, 209, 211)
   - `FRE1002/SPA1001` (rows 197, 199–203, 205, 208, 210). This code also names two courses in one cell.
-  - POS1045/POS1044 (rows 213–214). Their `Lab Slot` column holds a room number, which isn't a slot, and `Faculty_Lab` holds `Open Elective`.
+  - POS1045/POS1044 (rows 213–214). Their `Lab Slot` column holds a room number, not a slot (blanked in the committed copy), and `Faculty_Lab` holds `Open Elective`.
 - **Theory slot blank but `L > 0`**, so the class times are unknown: row 38 (CSE2007, Sl. No. 37) and row 52 (CSE1035, Sl. No. 53). Both have a lab slot. These rows are skipped and listed.
 
 #### Other things the file does that the importer reports as warnings

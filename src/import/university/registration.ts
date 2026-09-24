@@ -4,6 +4,8 @@ import { labBlock, type SlotGrid } from './slotGrid';
 
 /**
  * Importer for the university's "Course Registration File" workbook (see FORMAT.md §1).
+ * Only course and slot data is read. Faculty names, rooms and other free text in the slot columns
+ * are ignored and never copied into the result or its messages.
  * Input is the sheet as a grid of cell strings, so it works the same for .xlsx (via SheetJS)
  * and for a .csv saved from it.
  */
@@ -87,7 +89,8 @@ type Cell =
   | { kind: 'theory'; slots: string[] }
   | { kind: 'lab'; pairs: [number, number][]; normalized: { from: string; to: string; why: string }[] }
   | { kind: 'project'; text: string }
-  | { kind: 'other'; text: string };
+  /** Anything else (faculty names, rooms, notes). Ignored: never stored, shown or quoted. */
+  | { kind: 'other' };
 
 const PROJECT_RE = /project\s*based|no\s*slots?\s*(are\s*)?required/i;
 
@@ -97,7 +100,7 @@ function classify(text: string, grid: SlotGrid): Cell {
   const theoryTokens = compact.split('+');
   if (theoryTokens.every((t) => grid.theory.has(t))) return { kind: 'theory', slots: theoryTokens };
   const lab = classifyLab(text, grid);
-  return lab ?? { kind: 'other', text };
+  return lab ?? { kind: 'other' };
 }
 
 /**
@@ -145,7 +148,6 @@ interface Offering {
   labs: [number, number][];
   project: boolean;
   meetings: Meeting[];
-  faculty: string[];
 }
 
 export function parseRegistrationRows(rows: string[][], grid: SlotGrid): UniversityImport {
@@ -211,7 +213,7 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
     const theoryCells = found.filter((f): f is Extract<Cell, { kind: 'theory' }> => f.kind === 'theory');
     const labCells = found.filter((f): f is Extract<Cell, { kind: 'lab' }> => f.kind === 'lab');
     const project = found.some((f) => f.kind === 'project');
-    const other = found.filter((f): f is Extract<Cell, { kind: 'other' }> => f.kind === 'other').map((f) => f.text);
+    const hasOther = found.some((f) => f.kind === 'other');
 
     if (!CODE_RE.test(code))
       return skip(`course code "${cells[c.code]}" is not a single course code${!project && !theoryCells.length && !labCells.length ? ', and no slot is given' : ''}`);
@@ -219,7 +221,7 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
     const theory = theoryCells[0]?.slots ?? [];
     const labs = labCells[0]?.pairs ?? [];
     if (!project && !theory.length && !labs.length)
-      return skip(other.length ? `no recognisable slot (found ${other.map((o) => `"${o}"`).join(', ')})` : 'no slot given and not marked as a project course');
+      return skip(hasOther ? 'no recognisable slot (the slot columns hold only other text, e.g. a room or a note)' : 'no slot given and not marked as a project course');
     if (!project && !theory.length && theoryHours > 0) return skip(`theory slot is blank but ${c.labels[c.theoryHours]}=${theoryHours}, so its class times are unknown`);
     if (!project && !labs.length && practicalHours > 0) return skip(`lab slot is blank but P=${practicalHours}, so its lab times are unknown`);
 
@@ -253,7 +255,6 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
       labs,
       project,
       meetings: project ? [] : meetings,
-      faculty: other.filter((o) => !/^\d+$/.test(o) && !/^open elective$/i.test(o)),
     });
     stats.importedRows++;
   });
@@ -309,8 +310,6 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
       sections.push(sec);
     }
     sec.rows!.push(o.row);
-    const fac = new Set([...(sec.faculty ? sec.faculty.split('; ') : []), ...o.faculty]);
-    if (fac.size) sec.faculty = [...fac].join('; ');
   }
 
   const out = [...courses.values()].sort((a, b) => a.code.localeCompare(b.code));

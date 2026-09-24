@@ -53,10 +53,9 @@ describe('Fall 2026-27 registration file (real data/ file)', () => {
     expect(byReason(/theory slot is blank/)).toEqual([38, 52]);
     expect(r.stats.skipped.filter((s) => s.code === 'KAN1004').map((s) => s.row)).toEqual([190, 191, 192, 193, 194, 195]);
     expect(r.stats.skipped.filter((s) => s.code.startsWith('FRE1002')).map((s) => s.row)).toEqual([196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211]);
-    expect(r.stats.skipped.filter((s) => s.code.startsWith('POS')).map((s) => s.reason)).toEqual([
-      'no recognisable slot (found "Open Elective")',
-      'no recognisable slot (found "Open Elective")',
-    ]);
+    // POS rows: column H (room) is blank in the committed copy, column I says "Open Elective".
+    expect(r.stats.skipped.filter((s) => s.code.startsWith('POS')).map((s) => s.row)).toEqual([213, 214]);
+    expect(r.stats.skipped.every((s) => !/"/.test(s.reason) || /course code/.test(s.reason))).toBe(true);
   });
 
   it('lists every corrected slot spelling', () => {
@@ -116,11 +115,19 @@ describe('Fall 2026-27 registration file (real data/ file)', () => {
     expect(r.courses.filter((c) => c.officialCode === 'ECE3036').map((c) => c.title)).toEqual(['Robotic System Mechanics', 'System and Network on Chip']);
   });
 
-  it('reads slots from mislabelled columns by content and picks up faculty', () => {
+  it('reads slots from mislabelled columns by content', () => {
+    // Table at row 169: lab slots sit under "Theory Venue"; its "Lab Slot" column held faculty names.
     const s = section('SSK2002', 'L11+L12');
     expect(s.rows).toEqual([170, 174]);
-    expect(s.faculty).toBe('[name removed]; [name removed]');
     expect(r.warnings.some((w) => w.includes('column "Theory Venue" contains lab slots'))).toBe(true);
+  });
+
+  it('never stores faculty or other free text from the slot columns', () => {
+    const synthetic = rows.map((row, i) => (i === 169 ? row.map((c, j) => (j === 8 ? 'Dr. Example Person' : c)) : row));
+    const out = parseRegistrationRows(synthetic, grid);
+    const everything = JSON.stringify(out);
+    expect(everything).not.toContain('Example Person');
+    expect(out.courses.flatMap((c) => c.components[0].sections).every((x) => x.faculty === undefined)).toBe(true);
   });
 });
 
