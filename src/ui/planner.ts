@@ -13,14 +13,17 @@ const STORE_LIMIT = 5000;
 const PAGE = 30;
 
 let solveKey = '';
+let solveParsed: Parsed | null = null;
 let solveCache: { result: SolveResult; stats: ComboStats[] } | null = null;
 let shown = PAGE;
 let courseFilter = '';
 
 function solveFor(store: Store, courses: Course[]) {
-  const key = `${store.parsed?.sectionsById.size}|${store.state.timetable?.fileName}|${store.state.timetable?.kind === 'university' ? store.state.timetable.gridName : ''}|${courses.map((c) => c.code).join(',')}|${store.state.unavailable.join(',')}`;
-  if (key !== solveKey || !solveCache) {
+  // The parse result is a new object whenever the timetable or slot grid changes, so compare it by identity.
+  const key = `${courses.map((c) => c.code).join(',')}|${store.state.unavailable.join(',')}`;
+  if (key !== solveKey || store.parsed !== solveParsed || !solveCache) {
     solveKey = key;
+    solveParsed = store.parsed;
     shown = PAGE;
     const result = solve(courses, { unavailable: new Set(store.state.unavailable), limit: STORE_LIMIT });
     solveCache = { result, stats: result.combinations.map((c) => comboStats(c, courses)) };
@@ -321,6 +324,14 @@ function resultsCard(store: Store, p: Parsed): HTMLElement {
   const courses = selectedCourses(store);
   const { result, stats } = solveFor(store, courses);
   const card = h('section', { class: 'card' }, h('h2', null, '4 · Clash-free combinations'));
+  if (result.selfClashing.length)
+    card.append(
+      h(
+        'p',
+        { class: 'warn' },
+        `Left out because their own class times overlap (check on the portal): ${result.selfClashing.map((s) => `${s.courseCode} ${s.section}`).join(', ')}`,
+      ),
+    );
   if (result.count === 0) {
     card.append(diagnosisView(result, p));
     return card;

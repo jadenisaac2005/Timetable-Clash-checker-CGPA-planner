@@ -98,22 +98,29 @@ export function parseCanonicalCsv(text: string, slotMap?: SlotMap): Timetable & 
     const slot = r.slot?.toUpperCase() || undefined;
     if (slot && !sec.slots.includes(slot)) sec.slots.push(slot);
 
+    // A row whose times cannot be read adds no meetings and marks its section "times unknown",
+    // so the section is never reported as clash-free on the strength of the times that remain.
+    const unreadable = () => void (sec.timesUnknown ??= 'Some class times in the file could not be read');
     const timeFields = [r.day, r.start, r.end].filter((x) => x);
     if (timeFields.length === 3) {
       const m = parseMeeting(r.day, r.start, r.end, where, errors, slot);
       if (m) sec.meetings.push(m);
+      else unreadable();
     } else if (timeFields.length > 0) {
       errors.push(`${where}: day, start and end must all be filled or all be blank`);
+      unreadable();
     } else if (slot) {
       if (!slotMap) {
         errors.push(`${where}: slot "${slot}" has no times and no slot map is loaded`);
+        unreadable();
         return;
       }
-      for (const part of slot.split('+').map((p) => p.trim())) {
-        const ms = slotMap.get(part);
-        if (!ms) errors.push(`${where}: slot "${part}" is not in the slot map`);
-        else sec.meetings.push(...ms.map((m) => ({ ...m, slot })));
-      }
+      const parts = slot.split('+').map((p) => p.trim());
+      const missing = parts.filter((p) => !slotMap.has(p));
+      if (missing.length) {
+        for (const part of missing) errors.push(`${where}: slot "${part}" is not in the slot map`);
+        unreadable();
+      } else for (const part of parts) sec.meetings.push(...slotMap.get(part)!.map((m) => ({ ...m, slot })));
     }
     // No times and no slot: a meeting-less section (project/dissertation). Never clashes.
   });

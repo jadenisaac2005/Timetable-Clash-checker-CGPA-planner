@@ -71,6 +71,36 @@ export function isRegistrationHeader(cells: string[]): boolean {
   return cells.some((c) => /^course\s*code$/i.test(clean(c))) && cells.some((c) => /^(course\s*(name|title))$/i.test(clean(c)));
 }
 
+const SLOT_TOKEN = /(?:[A-Z]{1,2}\d{1,2}|\d{1,2})/.source;
+const SLOT_LIKE = new RegExp(`^${SLOT_TOKEN}(?:\\s*[+,&-]\\s*${SLOT_TOKEN})*$`, 'i');
+
+/** Could this cell be a slot expression (in any semester's grid) or the project marker? */
+function mayBeSlotCell(text: string): boolean {
+  const t = clean(text);
+  if (PROJECT_RE.test(t)) return true;
+  // Needs a letter-prefixed slot, or a "+"-joined pair of numbers (e.g. "31+32"); a lone "226" is a room.
+  return SLOT_LIKE.test(t) && (/[A-Z]/i.test(t) || /\d\s*\+\s*\d/.test(t));
+}
+
+/**
+ * Copy of the sheet with every cell after the credits column blanked unless it can be a slot.
+ * Faculty names, rooms and notes therefore never reach saved plans or exported JSON. The result
+ * parses exactly like the original.
+ */
+export function sanitizeRegistrationRows(rows: string[][]): string[][] {
+  let cols: Columns | null = null;
+  return rows.map((raw, i) => {
+    const cells = raw.map((c) => String(c ?? ''));
+    if (isRegistrationHeader(cells)) {
+      cols = columnsFrom(cells, i + 1);
+      return cells;
+    }
+    if (!cols || !clean(cells[cols.code] ?? '')) return cells;
+    const c: Columns = cols;
+    return cells.map((v, j) => (j > c.credits && v && !mayBeSlotCell(v) ? '' : v));
+  });
+}
+
 /** Quick check used to route an uploaded sheet to this importer rather than the canonical CSV one. */
 export function looksLikeRegistrationFile(rows: string[][]): boolean {
   return rows.slice(0, 30).some((r) => isRegistrationHeader(r) && r.some((c) => /slot/i.test(c)));
@@ -235,7 +265,6 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
     const theoryCells = found.filter((f): f is Extract<Cell, { kind: 'theory' }> => f.kind === 'theory');
     const labCells = found.filter((f): f is Extract<Cell, { kind: 'lab' }> => f.kind === 'lab');
     const project = found.some((f) => f.kind === 'project');
-    const hasOther = found.some((f) => f.kind === 'other');
 
     if (!CODE_RE.test(code) && !COMBINED_CODE_RE.test(code)) return skip(`course code "${cells[c.code]}" is not a course code`);
     if (COMBINED_CODE_RE.test(code)) warnings.push(`Row ${rowNum}: "${code}" names more than one course in one cell; imported as printed`);
@@ -247,8 +276,7 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
     // keeping whatever times it does give. Only an explicit project marker means "no classes".
     const tLabel = c.labels[c.theoryHours] || 'L/T';
     let timesUnknown: string | undefined;
-    if (!project && !theory.length && !labs.length)
-      timesUnknown = hasOther ? 'No slot in the registration file (the slot columns hold only other text)' : 'No slot in the registration file';
+    if (!project && !theory.length && !labs.length) timesUnknown = 'No slot in the registration file';
     else if (!project && !theory.length && theoryHours > 0)
       timesUnknown = `Theory slot not given in the registration file (${tLabel}=${theoryHours}); only the lab time is known`;
     else if (!project && !labs.length && practicalHours > 0)

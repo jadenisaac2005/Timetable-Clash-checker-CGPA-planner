@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { readWorkbookRows } from '../src/import/xlsx';
 import { parseSlotGrid } from '../src/import/university/slotGrid';
 import { FALL_2026_27_SLOT_TABLE } from '../src/import/university/fall2026Grid';
-import { parseRegistrationRows, looksLikeRegistrationFile, type UniversityImport } from '../src/import/university/registration';
+import { parseRegistrationRows, looksLikeRegistrationFile, sanitizeRegistrationRows, type UniversityImport } from '../src/import/university/registration';
 import { loadTimetableFile } from '../src/import/load';
 import { sectionClash } from '../src/core/clash';
 import { solve } from '../src/core/solver';
@@ -235,6 +235,26 @@ describe('"times unknown" in solving and exports', () => {
   });
 });
 
+describe('privacy: stored rows', () => {
+  it('sanitising keeps every slot cell, so the sheet parses exactly the same', () => {
+    expect(parseRegistrationRows(sanitizeRegistrationRows(rows), grid)).toEqual(r);
+  });
+
+  it('blanks free text in the slot columns (names, rooms, notes) and nothing else', () => {
+    const withText = rows.map((row, i) =>
+      i === 169 ? row.map((c, j) => (j === 8 ? 'Dr. Example Person' : c)) : i === 212 ? row.map((c, j) => (j === 7 ? '226' : c)) : row,
+    );
+    const clean = sanitizeRegistrationRows(withText);
+    const flat = JSON.stringify(clean);
+    expect(flat).not.toContain('Example Person');
+    expect(clean[212][7]).toBe('');
+    expect(clean[212][8]).toBe(''); // "Open Elective"
+    expect(clean[8][8]).toBe('L23+L24,31+32'); // bare-number lab pair kept
+    expect(clean[81][8]).toMatch(/PROJECT BASED/); // project marker kept
+    expect(clean[0]).toEqual(rows[0]); // headers untouched
+  });
+});
+
 describe('file routing', () => {
   it('sends the real .xlsx to the university importer', async () => {
     const buf = readFileSync(XLSX_PATH);
@@ -244,6 +264,7 @@ describe('file routing', () => {
       text: async () => '',
     });
     expect(src.kind).toBe('university');
+    if (src.kind === 'university') expect(src.rows).toEqual(sanitizeRegistrationRows(rows));
   });
 
   it('sends a CSV saved from the registration file to the university importer', async () => {

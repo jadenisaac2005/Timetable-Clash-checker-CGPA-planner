@@ -1,7 +1,7 @@
 import type { TimetableSource } from '../state';
 import { parseCsv } from './csv';
 import { docxTables } from './docx';
-import { looksLikeRegistrationFile } from './university/registration';
+import { looksLikeRegistrationFile, sanitizeRegistrationRows } from './university/registration';
 import { parseSlotGrid } from './university/slotGrid';
 
 export interface FileLike {
@@ -31,7 +31,7 @@ export async function loadTimetableFile(file: FileLike): Promise<TimetableSource
     const { readWorkbookRows } = await import('./xlsx');
     const sheets = await readWorkbookRows(await file.arrayBuffer());
     const reg = sheets.find((s) => looksLikeRegistrationFile(s.rows));
-    if (reg) return { kind: 'university', rows: reg.rows, fileName: sheets.length > 1 ? `${file.name} (sheet "${reg.name}")` : file.name };
+    if (reg) return { kind: 'university', rows: sanitizeRegistrationRows(reg.rows), fileName: sheets.length > 1 ? `${file.name} (sheet "${reg.name}")` : file.name };
     if (!sheets.length) throw new LoadError('The workbook has no sheets.');
     rows = sheets[0].rows;
     return { kind: 'canonical', csv: rowsToCsv(rows), fileName: file.name };
@@ -40,7 +40,7 @@ export async function loadTimetableFile(file: FileLike): Promise<TimetableSource
   if (e === 'pdf') throw new LoadError('PDF timetables are not supported. Use the .xlsx registration file.');
   const text = await file.text();
   rows = parseCsv(text, undefined, true);
-  if (looksLikeRegistrationFile(rows)) return { kind: 'university', rows, fileName: file.name };
+  if (looksLikeRegistrationFile(rows)) return { kind: 'university', rows: sanitizeRegistrationRows(rows), fileName: file.name };
   return { kind: 'canonical', csv: text, fileName: file.name };
 }
 

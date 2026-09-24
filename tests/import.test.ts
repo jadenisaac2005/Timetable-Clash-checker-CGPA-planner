@@ -76,6 +76,25 @@ Z,3,Q,ZZ9`, slots);
     expect(t.errors).toEqual(['row 4: slot "ZZ9" is not in the slot map']);
   });
 
+  it('adds no meetings from a combined slot with an unknown part, and marks the section times-unknown', () => {
+    const { slots } = parseSlotMap('slot,day,start,end\nA1,Mon,08:00,08:50');
+    const t = parseCanonicalCsv('course_code,credits,section,slot\nX,3,A,A1+ZZ9\nY,3,B,A1', slots);
+    const x = t.courses.find((c) => c.code === 'X')!.components[0].sections[0];
+    expect(x.meetings).toEqual([]);
+    expect(x.timesUnknown).toBeDefined();
+    expect(t.errors).toEqual(['row 2: slot "ZZ9" is not in the slot map']);
+    const y = t.courses.find((c) => c.code === 'Y')!.components[0].sections[0];
+    expect(y.meetings).toHaveLength(1);
+    expect(y.timesUnknown).toBeUndefined();
+  });
+
+  it('marks a section times-unknown when one of its time rows cannot be read', () => {
+    const t = parseCanonicalCsv('course_code,credits,section,day,start,end\nX,3,A,Mon,09:00,10:00\nX,3,A,Funday,10:00,11:00');
+    const s = t.courses[0].components[0].sections[0];
+    expect(s.meetings).toHaveLength(1);
+    expect(s.timesUnknown).toBeDefined();
+  });
+
   it('parses the shipped example file cleanly', () => {
     const t = parseCanonicalCsv(sampleCsv);
     expect(t.errors).toEqual([]);

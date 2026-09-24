@@ -1,5 +1,6 @@
-import { DEFAULT_SCALE, type GradeScale, type PastSemester } from './core/cgpa';
-import type { CreditedCourse, Curriculum } from './core/curriculum';
+import { DEFAULT_SCALE, validateScale, type GradeScale, type PastSemester } from './core/cgpa';
+import { validateCurriculum, type CreditedCourse, type Curriculum } from './core/curriculum';
+import { sanitizeRegistrationRows } from './import/university/registration';
 
 export interface PlannedGrade {
   code: string;
@@ -68,16 +69,28 @@ export function normalizeState(raw: unknown): AppState {
     chosen: Array.isArray(r.chosen) ? r.chosen.filter((x) => typeof x === 'string') : null,
     maxCredits: typeof r.maxCredits === 'number' ? r.maxCredits : d.maxCredits,
     sortBy: ['default', 'days', 'gaps', 'start', 'end'].includes(r.sortBy as string) ? r.sortBy! : 'default',
-    curriculum: r.curriculum && typeof r.curriculum === 'object' ? r.curriculum : null,
-    completed: arr<CreditedCourse>(r.completed, []).filter((c) => c && typeof c.code === 'string' && typeof c.credits === 'number'),
+    curriculum: r.curriculum && validateCurriculum(r.curriculum).length === 0 ? r.curriculum : null,
+    completed: arr<CreditedCourse>(r.completed, []).filter((c) => c && typeof c.code === 'string' && num(c.credits)),
     cgpa: {
-      scale: r.cgpa?.scale && Array.isArray(r.cgpa.scale.grades) ? r.cgpa.scale : d.cgpa.scale,
-      past: arr<PastSemester>(r.cgpa?.past, []),
-      target: typeof r.cgpa?.target === 'number' ? r.cgpa.target : null,
-      remainingCredits: typeof r.cgpa?.remainingCredits === 'number' ? r.cgpa.remainingCredits : null,
-      planned: arr<PlannedGrade>(r.cgpa?.planned, []),
+      scale: r.cgpa?.scale && typeof r.cgpa.scale === 'object' && validateScale(r.cgpa.scale).length === 0 && typeof r.cgpa.scale.name === 'string' ? r.cgpa.scale : d.cgpa.scale,
+      past: arr<PastSemester>(r.cgpa?.past, []).filter(isPastSemester),
+      target: num(r.cgpa?.target) ? r.cgpa!.target : null,
+      remainingCredits: num(r.cgpa?.remainingCredits) ? r.cgpa!.remainingCredits : null,
+      planned: arr<PlannedGrade>(r.cgpa?.planned, []).filter(isGraded),
     },
   };
+}
+
+const num = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+const isGraded = (c: unknown): c is PlannedGrade => {
+  const o = c as Partial<PlannedGrade> | null;
+  return !!o && typeof o === 'object' && (o.code === undefined || typeof o.code === 'string') && num(o.credits) && typeof o.grade === 'string';
+};
+function isPastSemester(x: unknown): x is PastSemester {
+  const o = x as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object' || (o.label !== undefined && typeof o.label !== 'string')) return false;
+  if (o.kind === 'sgpa') return num(o.sgpa) && num(o.credits);
+  return o.kind === 'courses' && Array.isArray(o.courses) && o.courses.every(isGraded);
 }
 
 const isGrid = (x: unknown): x is string[][] => Array.isArray(x) && x.every((r) => Array.isArray(r) && r.every((c) => typeof c === 'string'));
@@ -88,16 +101,17 @@ function normalizeTimetable(tt: unknown): TimetableSource | null {
   const fileName = String(t.fileName ?? 'timetable');
   if (t.kind === 'university')
     return isGrid(t.rows)
-      ? { kind: 'university', rows: t.rows, fileName, gridRows: isGrid(t.gridRows) ? t.gridRows : undefined, gridName: typeof t.gridName === 'string' ? t.gridName : undefined }
+      ? { kind: 'university', rows: sanitizeRegistrationRows(t.rows), fileName, gridRows: isGrid(t.gridRows) ? t.gridRows : undefined, gridName: typeof t.gridName === 'string' ? t.gridName : undefined }
       : null;
   // Plans saved before `kind` existed are canonical CSV.
   if (typeof t.csv !== 'string') return null;
   return { kind: 'canonical', csv: t.csv, fileName, slotMapCsv: typeof t.slotMapCsv === 'string' ? t.slotMapCsv : undefined, slotMapName: typeof t.slotMapName === 'string' ? t.slotMapName : undefined };
 }
 
-export function loadState(storage: Pick<Storage, 'getItem'> | undefined = globalThis.localStorage): AppState {
+export function loadState(storage?: Pick<Storage, 'getItem'>): AppState {
   try {
-    const raw = storage?.getItem(STORAGE_KEY);
+    // Resolved inside the try: reading localStorage itself can throw (blocked storage).
+    const raw = (storage ?? globalThis.localStorage)?.getItem(STORAGE_KEY);
     return raw ? normalizeState(JSON.parse(raw)) : defaultState();
   } catch {
     return defaultState();
@@ -105,10 +119,11 @@ export function loadState(storage: Pick<Storage, 'getItem'> | undefined = global
 }
 
 /** Returns false if storage is unavailable or full; the app keeps working in memory. */
-export function saveState(s: AppState, storage: Pick<Storage, 'setItem'> | undefined = globalThis.localStorage): boolean {
+export function saveState(s: AppState, storage?: Pick<Storage, 'setItem'>): boolean {
   try {
-    storage?.setItem(STORAGE_KEY, JSON.stringify(s));
-    return !!storage;
+    const st = storage ?? globalThis.localStorage;
+    st?.setItem(STORAGE_KEY, JSON.stringify(s));
+    return !!st;
   } catch {
     return false;
   }

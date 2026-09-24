@@ -133,7 +133,8 @@ export function projectCgpa(current: Tally, planned: readonly GradedCourse[], sc
 /** Validate a user-supplied scale; returns error messages (empty = valid). */
 export function validateScale(scale: GradeScale): string[] {
   const errs: string[] = [];
-  if (!scale.grades?.length) errs.push('Scale has no grades');
+  if (!Array.isArray(scale?.grades)) return ['Scale has no grades'];
+  if (!scale.grades.length) errs.push('Scale has no grades');
   const seen = new Set<string>();
   for (const g of scale.grades ?? []) {
     if (!g.grade?.trim()) errs.push('A grade has an empty name');

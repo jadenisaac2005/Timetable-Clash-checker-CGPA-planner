@@ -1,5 +1,5 @@
 import { hasUnknownTimes, type Course, type Section } from './model';
-import { meetingListsClash } from './time';
+import { meetingListsClash, meetingsOverlap } from './time';
 import { sectionClash, type SectionClash } from './clash';
 
 export interface SolveOptions {
@@ -38,6 +38,8 @@ export interface SolveResult {
   combinations: Section[][];
   /** Total combinations with no known clash (capped at countLimit). */
   count: number;
+  /** Sections of the chosen courses left out because their own meetings overlap. */
+  selfClashing: Section[];
   /** Of those, combinations whose times are all known — the only ones that are truly clash-free. */
   clashFreeCount: number;
   /** Combinations that include a section whose times are unknown: no known clash, but unverified. */
@@ -54,6 +56,12 @@ interface Variable {
   sections: Section[];
 }
 
+/** A section whose own meetings overlap cannot be attended, so it is never offered. */
+export function isSelfClashing(s: Section): boolean {
+  for (let i = 0; i < s.meetings.length; i++) for (let j = i + 1; j < s.meetings.length; j++) if (meetingsOverlap(s.meetings[i], s.meetings[j])) return true;
+  return false;
+}
+
 function variablesFor(courses: readonly Course[], unavailable: ReadonlySet<string>): Variable[] {
   const vars: Variable[] = [];
   for (const c of courses)
@@ -62,7 +70,7 @@ function variablesFor(courses: readonly Course[], unavailable: ReadonlySet<strin
         courseCode: c.code,
         component: comp.name,
         order: vars.length,
-        sections: comp.sections.filter((s) => !unavailable.has(s.id)),
+        sections: comp.sections.filter((s) => !unavailable.has(s.id) && !isSelfClashing(s)),
       });
   return vars;
 }
@@ -118,11 +126,18 @@ export function solve(courses: readonly Course[], opts: SolveOptions = {}): Solv
   let count = 0;
   let unknownTimesCount = 0;
 
+  let countCapped = false;
+
   enumerate(variablesFor(courses, unavailable), (combo) => {
+    // One past the limit proves there are more; exactly `countLimit` combinations is not "capped".
+    if (count === countLimit) {
+      countCapped = true;
+      return false;
+    }
     count++;
     if (hasUnknownTimes(combo)) unknownTimesCount++;
     if (combinations.length < limit) combinations.push(combo);
-    return count < countLimit;
+    return true;
   });
 
   return {
@@ -130,8 +145,9 @@ export function solve(courses: readonly Course[], opts: SolveOptions = {}): Solv
     count,
     clashFreeCount: count - unknownTimesCount,
     unknownTimesCount,
-    truncated: count > combinations.length,
-    countCapped: count >= countLimit,
+    truncated: countCapped || count > combinations.length,
+    countCapped,
+    selfClashing: courses.flatMap((c) => c.components.flatMap((comp) => comp.sections.filter((s) => !unavailable.has(s.id) && isSelfClashing(s)))),
     diagnosis: count === 0 && courses.length > 0 ? diagnose(courses, unavailable) : null,
   };
 }

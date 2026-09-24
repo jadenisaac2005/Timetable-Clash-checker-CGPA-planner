@@ -21,6 +21,44 @@ describe('state persistence', () => {
     expect(loadState({ getItem: (k: string) => (k === STORAGE_KEY ? '{not json' : null) })).toEqual(defaultState());
   });
 
+  it('drops malformed nested data from an imported plan instead of crashing later', () => {
+    const s = normalizeState({
+      version: 1,
+      curriculum: {},
+      completed: [{ code: 'A', credits: 3 }, { code: 'B', credits: 'x' }],
+      cgpa: {
+        scale: { name: 'x', grades: 'nope' },
+        past: [{ kind: 'sgpa', sgpa: 8, credits: 20 }, { kind: 'sgpa', sgpa: 'x' }, { kind: 'courses', courses: [{ credits: 3 }] }, null, 5],
+        planned: [{ code: 'A', credits: 3, grade: 'A' }, { code: 1 }],
+        target: 'high',
+      },
+    });
+    expect(s.curriculum).toBeNull();
+    expect(s.completed).toEqual([{ code: 'A', credits: 3 }]);
+    expect(s.cgpa.scale).toEqual(defaultState().cgpa.scale);
+    expect(s.cgpa.past).toEqual([{ kind: 'sgpa', sgpa: 8, credits: 20 }]);
+    expect(s.cgpa.planned).toEqual([{ code: 'A', credits: 3, grade: 'A' }]);
+    expect(s.cgpa.target).toBeNull();
+  });
+
+  it('falls back to memory when reading localStorage itself throws', () => {
+    const desc = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw new Error('SecurityError'); } });
+    try {
+      expect(loadState()).toEqual(defaultState());
+      expect(saveState(defaultState())).toBe(false);
+    } finally {
+      if (desc) Object.defineProperty(globalThis, 'localStorage', desc);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
+  it('removes free text from registration rows in a saved or imported plan', () => {
+    const rows = [['Sl. No.', 'Program', 'Course Code', 'Course Title', 'T', 'P', 'C', 'Lab Slot', 'Faculty_Lab'], ['1', '', 'SSK3001', 'X', '0', '2', '1', 'L3+L4', 'Dr. Example Person']];
+    const s = normalizeState({ version: 1, timetable: { kind: 'university', rows, fileName: 'f.xlsx' } });
+    expect(JSON.stringify(s)).not.toContain('Example Person');
+  });
+
   it('normalizes untrusted imports', () => {
     const s = normalizeState({ version: 1, selected: ['A', 3], maxCredits: 'x', sortBy: 'evil' });
     expect(s.selected).toEqual(['A']);

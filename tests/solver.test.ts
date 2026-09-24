@@ -196,6 +196,27 @@ describe('solve — sections with unknown times', () => {
   });
 });
 
+describe('solve — robustness', () => {
+  it('never offers a section whose own meetings overlap, and reports it', () => {
+    const a = course('A', { bad: [mt('Mon', '9:00', '10:00'), mt('Mon', '9:30', '10:30')], ok: [mt('Tue', '9:00', '10:00')] });
+    const res = solve([a]);
+    expect(res.combinations.map((c) => c[0].section)).toEqual(['ok']);
+    expect(res.selfClashing.map((s) => s.section)).toEqual(['bad']);
+    const onlyBad = solve([a], { unavailable: new Set(['A|main|ok']) });
+    expect(onlyBad.count).toBe(0);
+    expect(onlyBad.diagnosis).not.toBeNull();
+  });
+
+  it('is not "capped" when the count is exactly the limit, and is when it exceeds it', () => {
+    const a = course('A', { '1': [mt('Mon', '9:00', '10:00')], '2': [mt('Tue', '9:00', '10:00')] });
+    const b = course('B', { '1': [mt('Wed', '9:00', '10:00')], '2': [mt('Thu', '9:00', '10:00')] }); // 4 combinations
+    const exact = solve([a, b], { limit: 4, countLimit: 4 });
+    expect([exact.count, exact.countCapped, exact.truncated]).toEqual([4, false, false]);
+    const over = solve([a, b], { limit: 3, countLimit: 3 });
+    expect([over.count, over.countCapped, over.truncated]).toEqual([3, true, true]);
+  });
+});
+
 describe('comboStats', () => {
   it('computes credits, days and gaps', () => {
     const a = course('A', { '1': [mt('Mon', '9:00', '10:00'), mt('Wed', '9:00', '10:00')] }, 3);
