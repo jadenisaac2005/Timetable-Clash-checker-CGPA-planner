@@ -204,3 +204,9 @@ examples/       synthetic timetable + fictional curriculum
 When the file doesn't give class times, the importer doesn't guess them. The offering is imported as **times unknown**: you can still pick it, but any combination that includes it is never counted as clash-free. Only courses the file explicitly marks as projects are treated as never clashing. Low-confidence slot spellings carry a warning wherever they appear. [FORMAT.md](FORMAT.md) §1 lists every such row in the Fall 2026-27 file.
 
 No university logos or branding are used.
+
+---
+
+## Licence
+
+The code is released under the [MIT Licence](LICENSE). The university documents in `data/` are **not** covered by it: they're included only as test fixtures, and their copyright stays with the university. Dependencies such as SheetJS (Apache-2.0) keep their own licences.
