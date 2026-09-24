@@ -2,7 +2,8 @@ import type { Course, Section } from '../core/model';
 import { comboStats, solve, type SolveResult, type ComboStats } from '../core/solver';
 import { findClashes } from '../core/clash';
 import { formatMeeting, formatTime } from '../core/time';
-import { colorFor, comboText, download, drawGrid, gridLayout } from '../export';
+import { colorFor, comboText, download, drawGrid, gridLayout, sectionCaveats, TIMES_UNKNOWN } from '../export';
+import { hasUnknownTimes } from '../core/model';
 import sampleCsv from '../../examples/sample-timetable.csv?raw';
 import { details, h } from './dom';
 import { LoadError, loadSlotGridFile, loadTimetableFile } from '../import/load';
@@ -145,11 +146,20 @@ function statsView(p: Parsed): HTMLElement {
     h(
       'p',
       null,
-      `${st.totalRows} rows read: ${st.dataRows} course rows (${st.importedRows} imported, `,
+      `${st.totalRows} rows read: ${st.dataRows} course rows (${st.importedRows} imported`,
+      st.timesUnknown.length ? h('span', { class: 'warn' }, `, ${st.timesUnknown.length} of them with times unknown`) : '',
+      ', ',
       h('span', { class: st.skipped.length ? 'error' : '' }, `${st.skipped.length} skipped`),
       `), ${st.headerRows.length} table headers, ${st.headingRows.length} sub-headings, ${st.blankRows} blank.`,
       st.normalizations.length ? ` ${st.normalizations.length} slot spellings were corrected.` : '',
     ),
+    st.timesUnknown.length
+      ? issueList(
+          'warn',
+          `${st.timesUnknown.length} row(s) with class times not in the file — selectable, but never counted as clash-free`,
+          st.timesUnknown.map((x) => `Row ${x.row} ${x.code}: ${x.reason}`),
+        )
+      : null,
     st.skipped.length
       ? issueList(
           'error',
@@ -161,7 +171,7 @@ function statsView(p: Parsed): HTMLElement {
       ? issueList(
           'fix',
           `${st.normalizations.length} slot spelling(s) corrected`,
-          st.normalizations.map((x) => `Row ${x.row} ${x.code}: "${x.from}" read as ${x.to} (${x.why})`),
+          st.normalizations.map((x) => `Row ${x.row} ${x.code}: "${x.from}" read as ${x.to} (${x.why}; ${x.confidence} confidence)`),
         )
       : null,
   );
@@ -202,6 +212,7 @@ function coursePicker(store: Store, p: Parsed): HTMLElement {
             h('span', { class: 'code' }, c.code),
             h('span', { class: 'title' }, c.title),
             h('span', { class: 'meta' }, `${c.credits} cr · ${c.type} · ${nSec} sec${cat ? ' · ' + cat : ''}`),
+            c.components.some((x) => x.sections.some((y) => y.timesUnknown !== undefined)) ? h('span', { class: 'badge warn' }, 'times unknown') : null,
           ),
         ),
       );
@@ -274,6 +285,7 @@ function sectionsCard(store: Store, _p: Parsed): HTMLElement {
                     h('input', { type: 'checkbox', checked: !unavailable.has(s.id), onchange: (e: Event) => toggle(s.id, (e.target as HTMLInputElement).checked) }),
                     h('strong', null, s.section),
                     h('span', null, describeSection(s)),
+                    sectionCaveats(s).map((w) => h('span', { class: 'caveat' }, `⚠ ${w.replace(`${s.courseCode}: `, '')}`)),
                   ),
                 ),
               ),
@@ -289,7 +301,8 @@ function sectionsCard(store: Store, _p: Parsed): HTMLElement {
 }
 
 function describeSection(s: Section): string {
-  const parts = [s.meetings.length ? s.meetings.map(formatMeeting).join(', ') : 'no scheduled class'];
+  const known = s.meetings.map(formatMeeting).join(', ');
+  const parts = [s.timesUnknown !== undefined ? known || 'no times in the file' : known || 'no scheduled class'];
   if (s.slots.length) parts.push(`slots ${s.slots.join(', ')}`);
   if (s.faculty) parts.push(s.faculty);
   if (s.rows?.length) parts.push(`${s.rows.length > 1 ? 'rows' : 'row'} ${s.rows.join(', ')} of the file`);
@@ -314,12 +327,18 @@ function resultsCard(store: Store, p: Parsed): HTMLElement {
   }
   const order = result.combinations.map((_, i) => i);
   const cmp = SORTS[store.state.sortBy][1];
-  order.sort((a, b) => cmp(stats[a], stats[b]) || a - b);
+  const unknown = result.combinations.map(hasUnknownTimes);
+  // Fully verified combinations first; ones relying on unknown times after.
+  order.sort((a, b) => Number(unknown[a]) - Number(unknown[b]) || cmp(stats[a], stats[b]) || a - b);
   card.append(
     h(
       'div',
       { class: 'row wrap' },
-      h('strong', { class: 'ok' }, `${result.countCapped ? 'More than ' : ''}${result.count.toLocaleString()} combination${result.count === 1 ? '' : 's'}`),
+      h(
+        'strong',
+        { class: result.clashFreeCount ? 'ok' : 'warn' },
+        `${result.countCapped ? 'At least ' : ''}${result.clashFreeCount.toLocaleString()} clash-free combination${result.clashFreeCount === 1 ? '' : 's'}`,
+      ),
       h(
         'label',
         null,
@@ -332,6 +351,14 @@ function resultsCard(store: Store, p: Parsed): HTMLElement {
       ),
     ),
   );
+  if (result.unknownTimesCount)
+    card.append(
+      h(
+        'p',
+        { class: 'warn' },
+        `${result.unknownTimesCount.toLocaleString()} more combination${result.unknownTimesCount === 1 ? '' : 's'} include a section whose class times are not in the university file. They have no known clash but are NOT verified clash-free: ${TIMES_UNKNOWN}.`,
+      ),
+    );
   if (result.truncated)
     card.append(h('p', { class: 'muted' }, `Showing and sorting the first ${result.combinations.length.toLocaleString()} found. Mark sections unavailable to narrow it down.`));
   const chosenKey = store.state.chosen?.slice().sort().join(',');
@@ -351,6 +378,7 @@ function resultsCard(store: Store, p: Parsed): HTMLElement {
           h('button', { class: 'btn small', onclick: () => store.update((s) => void (s.chosen = combo.map((x) => x.id))) }, key === chosenKey ? 'Viewing' : 'View'),
         ),
         h('div', { class: 'muted small' }, `${st.days} days · ${Math.round(st.gapMinutes)} min gaps · ${st.earliestStart !== null ? formatTime(st.earliestStart) : '—'}–${st.latestEnd !== null ? formatTime(st.latestEnd) : '—'}`),
+        combo.flatMap(sectionCaveats).map((w) => h('div', { class: 'caveat' }, `⚠ ${w}`)),
       ),
     );
   }
@@ -426,6 +454,8 @@ function chosenCard(store: Store, p: Parsed): HTMLElement | null {
     'section',
     { class: 'card' },
     h('h2', null, '5 · Your timetable'),
+    hasUnknownTimes(combo) ? h('p', { class: 'warn' }, h('strong', null, 'Not verified clash-free.'), ' Some class times are not in the university file — verify on the portal.') : null,
+    combo.flatMap(sectionCaveats).length ? h('ul', { class: 'caveats' }, combo.flatMap(sectionCaveats).map((w) => h('li', null, `⚠ ${w}`))) : null,
     h('p', null, `${credits} credits`, credits > store.state.maxCredits ? h('span', { class: 'badge danger' }, ` over max ${store.state.maxCredits}`) : ''),
     gridView(combo, store.state.selected, p),
     h(
@@ -499,7 +529,8 @@ function gridView(combo: Section[], codes: string[], p: Parsed): HTMLElement {
       ),
     ),
   );
-  const unscheduled = combo.filter((s) => !s.meetings.length);
+  const unscheduled = combo.filter((s) => !s.meetings.length && s.timesUnknown === undefined);
+  const unknownTimes = combo.filter((s) => s.timesUnknown !== undefined);
   return h(
     'div',
     null,
@@ -514,6 +545,7 @@ function gridView(combo: Section[], codes: string[], p: Parsed): HTMLElement {
       ),
     ),
     unscheduled.length ? h('p', { class: 'muted small' }, `No scheduled class: ${unscheduled.map((s) => `${s.courseCode} (${s.section})`).join(', ')}`) : null,
+    unknownTimes.length ? h('p', { class: 'warn small' }, `Not shown in the grid (${TIMES_UNKNOWN}): ${unknownTimes.map((s) => `${s.courseCode} (${s.section})`).join(', ')}`) : null,
   );
 }
 

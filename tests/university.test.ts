@@ -9,6 +9,7 @@ import { sectionClash } from '../src/core/clash';
 import { solve } from '../src/core/solver';
 import { formatMeeting } from '../src/core/time';
 import type { Section } from '../src/core/model';
+import { comboText, sectionCaveats } from '../src/export';
 
 const XLSX_PATH = new URL('../data/Course_Registration_File_for_the_academic_year_2026_-Fall_Semester_-Student_Copy.xlsx', import.meta.url);
 const grid = parseSlotGrid(FALL_2026_27_SLOT_TABLE);
@@ -40,43 +41,80 @@ describe('Fall 2026-27 registration file (real data/ file)', () => {
     expect(st.headingRows.map((h) => h.row)).toEqual([125, 133, 141]);
     expect(st.blankRows).toBe(3);
     expect(st.dataRows).toBe(203);
-    expect(st.importedRows).toBe(177);
-    expect(st.skipped).toHaveLength(26);
+    expect(st.importedRows).toBe(203);
+    expect(st.skipped).toEqual([]);
+    expect(st.timesUnknown).toHaveLength(26);
     expect(st.headerRows.length + st.headingRows.length + st.blankRows + st.dataRows).toBe(st.totalRows);
     expect(st.importedRows + st.skipped.length).toBe(st.dataRows);
     expect(r.errors).toEqual([]);
-    expect(r.courses).toHaveLength(58);
+    // 58 courses with known times + KAN1004, FRE1002, FRE1002/SPA1001, POS1044, POS1045.
+    expect(r.courses).toHaveLength(63);
+    expect(r.courses.reduce((t, c) => t + c.components[0].sections.length, 0)).toBe(169);
   });
 
-  it('skips exactly the rows whose times are not in the file', () => {
-    const byReason = (re: RegExp) => r.stats.skipped.filter((s) => re.test(s.reason)).map((s) => s.row);
-    expect(byReason(/theory slot is blank/)).toEqual([38, 52]);
-    expect(r.stats.skipped.filter((s) => s.code === 'KAN1004').map((s) => s.row)).toEqual([190, 191, 192, 193, 194, 195]);
-    expect(r.stats.skipped.filter((s) => s.code.startsWith('FRE1002')).map((s) => s.row)).toEqual([196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211]);
-    // POS rows: column H (room) is blank in the committed copy, column I says "Open Elective".
-    expect(r.stats.skipped.filter((s) => s.code.startsWith('POS')).map((s) => s.row)).toEqual([213, 214]);
-    expect(r.stats.skipped.every((s) => !/"/.test(s.reason) || /course code/.test(s.reason))).toBe(true);
+  it('imports rows without times as "times unknown" instead of skipping them', () => {
+    const rowsOf = (re: RegExp) => r.stats.timesUnknown.filter((x) => re.test(x.code)).map((x) => x.row);
+    expect(rowsOf(/^KAN1004$/)).toEqual([190, 191, 192, 193, 194, 195]);
+    expect(rowsOf(/^FRE1002$/)).toEqual([196, 198, 204, 206, 207, 209, 211]);
+    expect(rowsOf(/^FRE1002\/SPA1001$/)).toEqual([197, 199, 200, 201, 202, 203, 205, 208, 210]);
+    expect(rowsOf(/^POS/)).toEqual([213, 214]);
+    expect(rowsOf(/^CSE(2007|1035)$/)).toEqual([38, 52]);
+    // Reasons never quote the text found in the slot columns.
+    expect(r.stats.timesUnknown.every((x) => !x.reason.includes('"'))).toBe(true);
   });
 
-  it('lists every corrected slot spelling', () => {
-    expect(r.stats.normalizations.map((n) => `${n.row}:${n.from}->${n.to}`)).toEqual([
-      '9:31+32->L31+L32',
-      '19:L15+16->L15+L16',
-      '171:L35 +36->L35+L36',
-      '172:L23 +24->L23+L24',
-      '173:L19+ 20->L19+L20',
-      '186:L21-L22->L21+L22',
-      '187:L11-L12->L11+L12',
-      '188:L33-L34->L33+L34',
-      '189:L39-L40->L39+L40',
+  it('gives a slotless course one selectable "Times unknown" section with no meetings', () => {
+    const kan = course('KAN1004');
+    expect(kan.components[0].sections).toHaveLength(1);
+    const s = kan.components[0].sections[0];
+    expect(s.section).toBe('Times unknown');
+    expect(s.rows).toEqual([190, 191, 192, 193, 194, 195]);
+    expect(s.meetings).toEqual([]);
+    expect(s.timesUnknown).toBe('No slot in the registration file');
+    expect(course('FRE1002/SPA1001').title).toBe('French/Spanish');
+    expect(r.warnings).toContain('Row 197: "FRE1002/SPA1001" names more than one course in one cell; imported as printed');
+  });
+
+  it('keeps the known lab time of a row whose theory slot is blank', () => {
+    const s = section('CSE2007', 'theory slot unknown · L33+L34');
+    expect(s.rows).toEqual([38]);
+    expect(s.meetings.map(formatMeeting)).toEqual(['Thu 13:15–14:55']);
+    expect(s.timesUnknown).toMatch(/Theory slot not given .*L=2/);
+    // Its known lab still clashes for real: CSE2001 row 30 is C2 + L33+L34.
+    expect(sectionClash(s, section('CSE2001', 'C2 · L33+L34'))).not.toBeNull();
+  });
+
+  it('lists every corrected slot spelling with its confidence', () => {
+    expect(r.stats.normalizations.map((n) => `${n.row}:${n.from}->${n.to}:${n.confidence}`)).toEqual([
+      '9:31+32->L31+L32:low',
+      '19:L15+16->L15+L16:high',
+      '171:L35 +36->L35+L36:high',
+      '172:L23 +24->L23+L24:high',
+      '173:L19+ 20->L19+L20:high',
+      '186:L21-L22->L21+L22:high',
+      '187:L11-L12->L11+L12:high',
+      '188:L33-L34->L33+L34:high',
+      '189:L39-L40->L39+L40:high',
     ]);
+  });
+
+  it('puts a visible warning on sections that use a low-confidence reading, and only those', () => {
+    const low = section('CSE1017', 'G2 · L23+L24, L31+L32'); // row 9, "31+32"
+    expect(low.warnings).toEqual(['Row 9: lab slot written "31+32" was read as L31+L32 (low confidence) — verify on the portal']);
+    expect(sectionCaveats(low)).toEqual(['CSE1017: Row 9: lab slot written "31+32" was read as L31+L32 (low confidence) — verify on the portal']);
+    expect(comboText([low], r.courses)).toContain('(low-confidence slot reading — verify on the portal)');
+    // High-confidence corrections (row 19 "L15+16", rows 186–189 hyphens) carry no warning.
+    expect(section('CSE2046', 'F2 · L15+L16').warnings).toBeUndefined();
+    expect(section('KAN1005', 'L21+L22').warnings).toBeUndefined();
+    const warned = r.courses.flatMap((c) => c.components[0].sections).filter((x) => x.warnings?.length);
+    expect(warned.map((x) => x.id)).toEqual([low.id]);
   });
 
   // Counted by hand from the sheet: distinct (theory slot, lab slots) combinations per course code.
   // CSE1017 rows 2–13: 12 rows, all different.            CSE2046 rows 14–25: rows 17 and 22 are both G2+L15+L16 → 11.
   // CSE2001 rows 26–34: rows 26 and 34 are both A2+L3+L4 → 8. MAT2002 rows 150–162: D1+TA1, C1, C2, B2, E1+TC1, B1, A1 → 7.
-  // CSE3003 rows 95–102: A1, B1, C2, A2, C1 → 5.            CSE2007 rows 35–41 minus blank-theory row 38 → 6.
-  // CSE1035 rows 42–52 minus blank-theory row 52 → 10.     SSK3001 rows 175–184: L35+L36 and L39+L40 twice → 8.
+  // CSE3003 rows 95–102: A1, B1, C2, A2, C1 → 5.            CSE2007 rows 35–41: 6 + row 38 (theory unknown) → 7.
+  // CSE1035 rows 42–52: 10 + row 52 (theory unknown) → 11. SSK3001 rows 175–184: L35+L36 and L39+L40 twice → 8.
   // KAN1005 rows 186–189 → 4.                              ECE3026 row 82 (project) → 1.
   it.each([
     ['CSE1017', 12],
@@ -84,8 +122,8 @@ describe('Fall 2026-27 registration file (real data/ file)', () => {
     ['CSE2001', 8],
     ['MAT2002', 7],
     ['CSE3003', 5],
-    ['CSE2007', 6],
-    ['CSE1035', 10],
+    ['CSE2007', 7],
+    ['CSE1035', 11],
     ['SSK3001', 8],
     ['KAN1005', 4],
     ['ECE3026', 1],
@@ -165,6 +203,35 @@ describe('real clashes in the Fall 2026-27 data', () => {
       const ids = combo.map((s) => s.id);
       expect(ids.includes(section('CSE2001', 'A2 · L3+L4').id) && ids.includes(section('CSE2006', 'D1 · L21+L22').id)).toBe(false);
     }
+  });
+});
+
+describe('"times unknown" in solving and exports', () => {
+  it('a combination with a times-unknown section is found but never counted as clash-free', () => {
+    const res = solve([course('CSE2001'), course('KAN1004')]);
+    expect(res.count).toBe(8);
+    expect(res.clashFreeCount).toBe(0);
+    expect(res.unknownTimesCount).toBe(8);
+    const txt = comboText(res.combinations[0], r.courses);
+    expect(txt).toContain('KAN1004');
+    expect(txt).toContain('times unknown — verify on the portal');
+    expect(txt).toContain('NOT verified clash-free');
+  });
+
+  it('a partly-known section still blocks on its known time', () => {
+    const cse2007 = course('CSE2007');
+    const onlyUnknown = new Set(cse2007.components[0].sections.filter((x) => x.timesUnknown === undefined).map((x) => x.id));
+    // Only C2 · L33+L34 of CSE2001 left: it clashes with the known lab L33+L34 of row 38.
+    const cse2001Others = new Set(course('CSE2001').components[0].sections.filter((x) => x.section !== 'C2 · L33+L34').map((x) => x.id));
+    const res = solve([course('CSE2001'), cse2007], { unavailable: new Set([...onlyUnknown, ...cse2001Others]) });
+    expect(res.count).toBe(0);
+  });
+
+  it('a genuine project course stays never-clashing and verified', () => {
+    const res = solve([course('CSE2001'), course('ECE3026')]);
+    expect(res.count).toBe(8);
+    expect(res.clashFreeCount).toBe(8);
+    expect(res.unknownTimesCount).toBe(0);
   });
 });
 

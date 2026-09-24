@@ -175,6 +175,27 @@ describe('solve — infeasibility diagnosis', () => {
   });
 });
 
+describe('solve — sections with unknown times', () => {
+  it('enumerates them but reports combinations containing them as unverified', () => {
+    const a = course('A', { '1': [mt('Mon', '9:00', '10:00')], '2': [mt('Tue', '9:00', '10:00')] });
+    const unk = course('U', { X: [] });
+    unk.components[0].sections[0].timesUnknown = 'No slot in the file';
+    const res = solve([a, unk]);
+    expect(res.count).toBe(2);
+    expect(res.clashFreeCount).toBe(0);
+    expect(res.unknownTimesCount).toBe(2);
+    expect(res.diagnosis).toBeNull();
+  });
+
+  it('counts only fully known combinations as clash-free', () => {
+    const a = course('A', { '1': [mt('Mon', '9:00', '10:00')] });
+    const b = course('B', { K: [mt('Tue', '9:00', '10:00')], U: [mt('Wed', '9:00', '10:00')] });
+    b.components[0].sections[1].timesUnknown = 'Theory slot not given';
+    const res = solve([a, b]);
+    expect([res.count, res.clashFreeCount, res.unknownTimesCount]).toEqual([2, 1, 1]);
+  });
+});
+
 describe('comboStats', () => {
   it('computes credits, days and gaps', () => {
     const a = course('A', { '1': [mt('Mon', '9:00', '10:00'), mt('Wed', '9:00', '10:00')] }, 3);

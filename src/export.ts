@@ -1,6 +1,13 @@
 import { DAYS, type Course, type Day, type Section } from './core/model';
 import { formatMeeting, formatTime } from './core/time';
 
+export const TIMES_UNKNOWN = 'times unknown — verify on the portal';
+
+/** Everything a student must double-check about a section, in plain words. */
+export function sectionCaveats(s: Section): string[] {
+  return [...(s.timesUnknown !== undefined ? [`${s.courseCode}: ${TIMES_UNKNOWN} (${s.timesUnknown})`] : []), ...(s.warnings ?? []).map((w) => `${s.courseCode}: ${w}`)];
+}
+
 export function courseByCode(courses: readonly Course[]): Map<string, Course> {
   return new Map(courses.map((c) => [c.code, c]));
 }
@@ -19,10 +26,13 @@ export function comboText(combo: readonly Section[], courses: readonly Course[])
     }
     const comp = s.component === 'main' ? '' : ` (${s.component})`;
     const slots = s.slots.length ? s.slots.join(', ') : '—';
-    const times = s.meetings.length ? s.meetings.map(formatMeeting).join('; ') : 'no scheduled class';
-    lines.push(`${s.courseCode}\t${c?.title ?? ''}\tSection ${s.section}${comp}\tSlots: ${slots}\t${times}`);
+    const known = s.meetings.map(formatMeeting).join('; ');
+    const times = s.timesUnknown !== undefined ? [known, TIMES_UNKNOWN].filter(Boolean).join('; ') : known || 'no scheduled class';
+    const flag = s.warnings?.length ? '\t(low-confidence slot reading — verify on the portal)' : '';
+    lines.push(`${s.courseCode}\t${c?.title ?? ''}\tSection ${s.section}${comp}\tSlots: ${slots}\t${times}${flag}`);
   }
   lines.push('', `Total credits: ${credits}`);
+  if (combo.some((s) => s.timesUnknown !== undefined)) lines.push('NOT verified clash-free: some class times are not in the university file.');
   lines.push('Unofficial plan — verify every section on the university portal before submitting.');
   return lines.join('\n');
 }
@@ -54,10 +64,11 @@ export function gridLayout(combo: readonly Section[]): GridLayout {
 export function drawGrid(canvas: HTMLCanvasElement, combo: readonly Section[], courses: readonly Course[], scale = 2): void {
   const { days, startMin, endMin } = gridLayout(combo);
   const codes = [...new Set(combo.map((s) => s.courseCode))];
-  const unscheduled = combo.filter((s) => !s.meetings.length);
+  const unscheduled = combo.filter((s) => !s.meetings.length && s.timesUnknown === undefined);
+  const caveats = combo.flatMap(sectionCaveats);
   const colW = 170, gutter = 56, head = 34, pxPerMin = 1.1;
   const bodyH = (endMin - startMin) * pxPerMin;
-  const footer = 28 + (unscheduled.length ? 22 : 0);
+  const footer = 28 + (unscheduled.length ? 22 : 0) + caveats.length * 18;
   const W = gutter + colW * days.length + 12;
   const H = head + bodyH + footer;
   canvas.width = W * scale;
@@ -116,6 +127,12 @@ export function drawGrid(canvas: HTMLCanvasElement, combo: readonly Section[], c
     ctx.fillText(`No scheduled class: ${unscheduled.map((s) => `${s.courseCode} (${s.section})`).join(', ')}`, 8, fy);
     fy += 22;
   }
+  ctx.fillStyle = '#b45309';
+  for (const c of caveats) {
+    ctx.fillText(`⚠ ${c}`, 8, fy);
+    fy += 18;
+  }
+  ctx.fillStyle = '#374151';
   ctx.fillText('Unofficial plan — verify on the university portal.', 8, fy);
 }
 

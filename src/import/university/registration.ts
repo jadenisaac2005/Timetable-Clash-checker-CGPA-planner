@@ -22,6 +22,19 @@ export interface Normalization {
   from: string;
   to: string;
   why: string;
+  /**
+   * high: only the spelling is off and exactly one slot fits (a missing second "L", a hyphen).
+   * low: the cell does not say it is a lab slot at all (bare "31+32"); the reading relies on the
+   * column it sits in. Sections using a low-confidence reading carry a visible warning.
+   */
+  confidence: 'high' | 'low';
+}
+
+/** A row imported without (all of) its class times because the file does not give them. */
+export interface UnknownTimesRow {
+  row: number;
+  code: string;
+  reason: string;
 }
 
 export interface ImportStats {
@@ -32,6 +45,8 @@ export interface ImportStats {
   /** Rows that carry a course code (i.e. offerings). */
   dataRows: number;
   importedRows: number;
+  /** Imported rows whose class times are (partly) missing from the file; subset of importedRows. */
+  timesUnknown: UnknownTimesRow[];
   skipped: SkippedRow[];
   normalizations: Normalization[];
 }
@@ -48,6 +63,8 @@ const clean = (v: unknown) =>
     .trim();
 
 const CODE_RE = /^[A-Z]{3}\d{4}$/;
+/** Two codes in one cell, e.g. "FRE1002/SPA1001" (row 197). Imported as printed, with a warning. */
+const COMBINED_CODE_RE = /^[A-Z]{3}\d{4}(\/[A-Z]{3}\d{4})+$/;
 
 /** True if this row is a table header of the registration file. */
 export function isRegistrationHeader(cells: string[]): boolean {
@@ -87,7 +104,7 @@ function columnsFrom(cells: string[], row: number): Columns {
 
 type Cell =
   | { kind: 'theory'; slots: string[] }
-  | { kind: 'lab'; pairs: [number, number][]; normalized: { from: string; to: string; why: string }[] }
+  | { kind: 'lab'; pairs: [number, number][]; normalized: { from: string; to: string; why: string; confidence: 'high' | 'low' }[] }
   | { kind: 'project'; text: string }
   /** Anything else (faculty names, rooms, notes). Ignored: never stored, shown or quoted. */
   | { kind: 'other' };
@@ -115,20 +132,23 @@ function classifyLab(text: string, grid: SlotGrid): Cell | null {
   const blocks = text.split(/\s*[,&]\s*/).filter(Boolean);
   if (!blocks.length) return null;
   const pairs: [number, number][] = [];
-  const normalized: { from: string; to: string; why: string }[] = [];
+  const normalized: { from: string; to: string; why: string; confidence: 'high' | 'low' }[] = [];
   for (const raw of blocks) {
     const b = raw.replace(/\s+/g, '').toUpperCase();
     let m = /^L(\d{1,2})\+L(\d{1,2})$/.exec(b);
     let why = '';
+    let confidence: 'high' | 'low' = 'high';
     if (!m && (m = /^L(\d{1,2})\+(\d{1,2})$/.exec(b))) why = 'second "L" missing';
-    else if (!m && (m = /^(\d{1,2})\+(\d{1,2})$/.exec(b))) why = '"L" prefixes missing';
-    else if (!m && (m = /^L(\d{1,2})-L?(\d{1,2})$/.exec(b))) why = 'hyphen instead of "+"';
+    else if (!m && (m = /^(\d{1,2})\+(\d{1,2})$/.exec(b))) {
+      why = '"L" prefixes missing; read as a lab slot only because of the column it is in';
+      confidence = 'low';
+    } else if (!m && (m = /^L(\d{1,2})-L?(\d{1,2})$/.exec(b))) why = 'hyphen instead of "+"';
     if (!m) return null;
     const a = Number(m[1]);
     const c = Number(m[2]);
     if (a % 2 !== 1 || c !== a + 1 || !grid.lab.has(`L${a}`) || !grid.lab.has(`L${c}`)) return null;
     pairs.push([a, c]);
-    if (why) normalized.push({ from: raw.trim(), to: `L${a}+L${c}`, why });
+    if (why) normalized.push({ from: raw.trim(), to: `L${a}+L${c}`, why, confidence });
   }
   return { kind: 'lab', pairs, normalized };
 }
@@ -148,12 +168,14 @@ interface Offering {
   labs: [number, number][];
   project: boolean;
   meetings: Meeting[];
+  timesUnknown?: string;
+  warnings: string[];
 }
 
 export function parseRegistrationRows(rows: string[][], grid: SlotGrid): UniversityImport {
   const errors: string[] = [...grid.errors];
   const warnings: string[] = [];
-  const stats: ImportStats = { totalRows: rows.length, headerRows: [], headingRows: [], blankRows: 0, dataRows: 0, importedRows: 0, skipped: [], normalizations: [] };
+  const stats: ImportStats = { totalRows: rows.length, headerRows: [], headingRows: [], blankRows: 0, dataRows: 0, importedRows: 0, timesUnknown: [], skipped: [], normalizations: [] };
   const offerings: Offering[] = [];
   let cols: Columns | null = null;
   let audience = '';
@@ -215,23 +237,35 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
     const project = found.some((f) => f.kind === 'project');
     const hasOther = found.some((f) => f.kind === 'other');
 
-    if (!CODE_RE.test(code))
-      return skip(`course code "${cells[c.code]}" is not a single course code${!project && !theoryCells.length && !labCells.length ? ', and no slot is given' : ''}`);
+    if (!CODE_RE.test(code) && !COMBINED_CODE_RE.test(code)) return skip(`course code "${cells[c.code]}" is not a course code`);
+    if (COMBINED_CODE_RE.test(code)) warnings.push(`Row ${rowNum}: "${code}" names more than one course in one cell; imported as printed`);
     if (theoryCells.length > 1 || labCells.length > 1) return skip('more than one theory or lab slot cell on the row');
     const theory = theoryCells[0]?.slots ?? [];
     const labs = labCells[0]?.pairs ?? [];
-    if (!project && !theory.length && !labs.length)
-      return skip(hasOther ? 'no recognisable slot (the slot columns hold only other text, e.g. a room or a note)' : 'no slot given and not marked as a project course');
-    if (!project && !theory.length && theoryHours > 0) return skip(`theory slot is blank but ${c.labels[c.theoryHours]}=${theoryHours}, so its class times are unknown`);
-    if (!project && !labs.length && practicalHours > 0) return skip(`lab slot is blank but P=${practicalHours}, so its lab times are unknown`);
 
-    for (const n of labCells[0]?.normalized ?? []) stats.normalizations.push({ row: rowNum, code, ...n });
+    // Times the file does not give are never guessed: the row is imported as "times unknown",
+    // keeping whatever times it does give. Only an explicit project marker means "no classes".
+    const tLabel = c.labels[c.theoryHours] || 'L/T';
+    let timesUnknown: string | undefined;
+    if (!project && !theory.length && !labs.length)
+      timesUnknown = hasOther ? 'No slot in the registration file (the slot columns hold only other text)' : 'No slot in the registration file';
+    else if (!project && !theory.length && theoryHours > 0)
+      timesUnknown = `Theory slot not given in the registration file (${tLabel}=${theoryHours}); only the lab time is known`;
+    else if (!project && !labs.length && practicalHours > 0)
+      timesUnknown = `Lab slot not given in the registration file (P=${practicalHours}); only the theory time is known`;
+    if (timesUnknown) stats.timesUnknown.push({ row: rowNum, code, reason: timesUnknown });
+
+    const rowWarnings: string[] = [];
+    for (const n of labCells[0]?.normalized ?? []) {
+      stats.normalizations.push({ row: rowNum, code, ...n });
+      if (n.confidence === 'low') rowWarnings.push(`Row ${rowNum}: lab slot written "${n.from}" was read as ${n.to} (low confidence) — verify on the portal`);
+    }
 
     const meetings: Meeting[] = [];
     for (const t of theory) meetings.push(...grid.theory.get(t)!.map((m) => ({ ...m, slot: t })));
     for (const [a, b] of labs) meetings.push(...labBlock(grid, a, b)!);
 
-    if (!project) {
+    if (!project && !timesUnknown) {
       const theoryMeetings = meetings.filter((m) => !m.slot?.startsWith('L')).length;
       if (theory.length && theoryMeetings !== theoryHours)
         warnings.push(`Row ${rowNum} ${code}: theory slot ${theory.join('+')} meets ${theoryMeetings}×/week but ${c.labels[c.theoryHours]}=${theoryHours}`);
@@ -255,6 +289,8 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
       labs,
       project,
       meetings: project ? [] : meetings,
+      timesUnknown,
+      warnings: rowWarnings,
     });
     stats.importedRows++;
   });
@@ -274,7 +310,9 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
   for (const o of offerings) {
     const key = keyOf(o);
     let course = courses.get(key);
-    const type: CourseType = o.project ? 'project' : o.theory.length && o.labs.length ? 'tel' : o.labs.length ? 'lab' : 'theory';
+    const hasTheory = o.theory.length > 0 || (!!o.timesUnknown && o.theoryHours > 0);
+    const hasLab = o.labs.length > 0 || (!!o.timesUnknown && o.practicalHours > 0);
+    const type: CourseType = o.project ? 'project' : hasTheory && hasLab ? 'tel' : hasLab ? 'lab' : 'theory';
     if (!course) {
       course = {
         code: key,
@@ -294,7 +332,16 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
       if (o.category && course.category && titleKey(o.category) !== titleKey(course.category) && !course.category.includes(o.category))
         course.category = `${course.category}; ${o.category}`;
     }
-    const slotLabel = o.project ? 'Project (no slot)' : [o.theory.join('+'), o.labs.map(([a, b]) => `L${a}+L${b}`).join(', ')].filter(Boolean).join(' · ');
+    const known = [o.theory.join('+'), o.labs.map(([a, b]) => `L${a}+L${b}`).join(', ')].filter(Boolean).join(' · ');
+    const slotLabel = o.project
+      ? 'Project (no slot)'
+      : !o.timesUnknown
+        ? known
+        : !known
+          ? 'Times unknown'
+          : !o.theory.length
+            ? `theory slot unknown · ${known}`
+            : `${known} · lab slot unknown`;
     const sections = course.components[0].sections;
     let sec = sections.find((s) => s.section === slotLabel);
     if (!sec) {
@@ -306,10 +353,12 @@ export function parseRegistrationRows(rows: string[][], grid: SlotGrid): Univers
         slots: [...o.theory, ...o.labs.map(([a, b]) => `L${a}+L${b}`)],
         meetings: o.meetings,
         rows: [],
+        ...(o.timesUnknown ? { timesUnknown: o.timesUnknown } : {}),
       } satisfies Section;
       sections.push(sec);
     }
     sec.rows!.push(o.row);
+    if (o.warnings.length) sec.warnings = [...(sec.warnings ?? []), ...o.warnings];
   }
 
   const out = [...courses.values()].sort((a, b) => a.code.localeCompare(b.code));

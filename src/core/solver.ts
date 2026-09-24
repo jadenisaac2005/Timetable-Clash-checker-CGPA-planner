@@ -1,4 +1,4 @@
-import type { Course, Section } from './model';
+import { hasUnknownTimes, type Course, type Section } from './model';
 import { meetingListsClash } from './time';
 import { sectionClash, type SectionClash } from './clash';
 
@@ -36,8 +36,12 @@ export interface Diagnosis {
 export interface SolveResult {
   /** Each combination lists one section per (course, component), in input order. */
   combinations: Section[][];
-  /** Total clash-free combinations found (capped at countLimit). */
+  /** Total combinations with no known clash (capped at countLimit). */
   count: number;
+  /** Of those, combinations whose times are all known — the only ones that are truly clash-free. */
+  clashFreeCount: number;
+  /** Combinations that include a section whose times are unknown: no known clash, but unverified. */
+  unknownTimesCount: number;
   truncated: boolean;
   countCapped: boolean;
   diagnosis: Diagnosis | null;
@@ -112,9 +116,11 @@ export function solve(courses: readonly Course[], opts: SolveOptions = {}): Solv
   const countLimit = Math.max(opts.countLimit ?? 100_000, limit);
   const combinations: Section[][] = [];
   let count = 0;
+  let unknownTimesCount = 0;
 
   enumerate(variablesFor(courses, unavailable), (combo) => {
     count++;
+    if (hasUnknownTimes(combo)) unknownTimesCount++;
     if (combinations.length < limit) combinations.push(combo);
     return count < countLimit;
   });
@@ -122,6 +128,8 @@ export function solve(courses: readonly Course[], opts: SolveOptions = {}): Solv
   return {
     combinations,
     count,
+    clashFreeCount: count - unknownTimesCount,
+    unknownTimesCount,
     truncated: count > combinations.length,
     countCapped: count >= countLimit,
     diagnosis: count === 0 && courses.length > 0 ? diagnose(courses, unavailable) : null,

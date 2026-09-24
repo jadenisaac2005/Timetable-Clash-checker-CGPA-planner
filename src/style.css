@@ -78,6 +78,9 @@ label.check input { align-self: center; }
 .meta { color: var(--muted); font-size: 0.8rem; }
 .credits.over strong { color: var(--danger); }
 .badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.caveat { display: block; color: var(--warn); font-size: 0.8rem; flex-basis: 100%; }
+ul.caveats { color: var(--warn); font-size: 0.85rem; padding-left: 18px; }
 .badge.danger { background: var(--danger-bg); color: var(--danger); }
 details.sections { border-top: 1px solid var(--border); padding: 8px 0; }
 details summary { cursor: pointer; }

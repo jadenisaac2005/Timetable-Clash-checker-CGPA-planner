@@ -21,6 +21,14 @@ export interface Section {
   room?: string;
   /** Source spreadsheet row numbers merged into this section (identical slots). */
   rows?: number[];
+  /**
+   * Set when the source file does not give (all of) this section's class times, e.g. no slot at
+   * all. `meetings` then holds only the times that are known. Such a section can be chosen, but
+   * a combination containing it is never reported as clash-free.
+   */
+  timesUnknown?: string;
+  /** Doubts about how this section was read (e.g. a low-confidence slot spelling), shown wherever it is. */
+  warnings?: string[];
 }
 
 export interface Component {
@@ -50,6 +58,11 @@ export interface Course {
 export interface Timetable {
   courses: Course[];
   warnings: string[];
+}
+
+/** A combination can only be called clash-free if every section's times are fully known. */
+export function hasUnknownTimes(combo: readonly Section[]): boolean {
+  return combo.some((s) => s.timesUnknown !== undefined);
 }
 
 export function sectionId(courseCode: string, component: string, section: string): string {
