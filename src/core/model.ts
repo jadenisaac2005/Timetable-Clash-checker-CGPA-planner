@@ -19,6 +19,8 @@ export interface Section {
   meetings: Meeting[];
   faculty?: string;
   room?: string;
+  /** Source spreadsheet row numbers merged into this section (identical slots). */
+  rows?: number[];
 }
 
 export interface Component {
@@ -35,6 +37,14 @@ export interface Course {
   type: CourseType;
   /** Each component needs exactly one section chosen. */
   components: Component[];
+  /** Official course code when `code` had to be disambiguated (same code, different titles). */
+  officialCode?: string;
+  /** Category/basket label as printed in the source file, e.g. "PC", "Robotics Basket". */
+  category?: string;
+  /** Sub-heading the rows appeared under, e.g. "M.Tech 2nd year". */
+  audience?: string;
+  /** Weekly theory (L/T) and practical (P) hours from the source file. */
+  hours?: { theory: number; practical: number };
 }
 
 export interface Timetable {
