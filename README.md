@@ -38,13 +38,14 @@ All screenshots use the **synthetic** sample in `examples/`. It's made-up data, 
 
 **Before the portal opens**
 
-1. Get the course list/timetable file, then turn it into the CSV format described in [FORMAT.md](FORMAT.md). (See *Known gap* below.)
-2. Open the planner. Click **Choose timetable CSV** and load it. Read any "rows could not be read" message: those rows were **skipped, not guessed**, so fix them in the file.
-3. Tick the courses you want. Set **Max credits** to your programme's limit so you get a warning if you go over.
-4. Look through the clash-free combinations. Sort by *fewest days*, *fewest gaps*, *latest first class* or *earliest last class*. Click **View** on the ones you like.
-5. For the one you'd register with, **Download text list** or **Copy text list**. It has the course code, section and slots for each course, ready to copy into the official form. Save the **PNG** too.
-6. Pick a second and third choice now, while you're calm.
-7. Click **Export plan (JSON)** so you have a backup that doesn't depend on this browser.
+1. Download the **Course Registration File** (.xlsx) as the university publishes it. Don't edit it.
+2. Open the planner, click **Choose registration file** and pick it. Slot names are turned into real times using the Fall 2026-27 slot timetable, which is built in. For a later semester, also load that semester's **slot timetable .docx**.
+3. Read the import summary. **Skipped rows** are offerings whose times aren't in the file, such as courses with no slot at all. They aren't in the planner, so check them on the portal. **Corrected slot spellings** and **warnings** point to rows worth double-checking.
+4. Tick the courses you want. Set **Max credits** to your programme's limit so you get a warning if you go over.
+5. Look through the clash-free combinations. Sort by *fewest days*, *fewest gaps*, *latest first class* or *earliest last class*. Click **View** on the ones you like.
+6. For the one you'd register with, **Download text list** or **Copy text list**. It has the course code, section and slots for each course, ready to copy into the official form. Save the **PNG** too.
+7. Pick a second and third choice now, while you're calm.
+8. Click **Export plan (JSON)** so you have a backup that doesn't depend on this browser.
 
 **While registering**
 
@@ -67,7 +68,13 @@ All screenshots use the **synthetic** sample in `examples/`. It's made-up data, 
 
 ### 1. Clash checker
 
-- **Import:** canonical CSV (one row per class meeting). There's an optional slot map CSV for timetables that give only slot names. Everything is parsed in the browser. Full spec in [FORMAT.md](FORMAT.md).
+- **Import:**
+  - the university's **Course Registration File** as published: .xlsx, or a .csv saved from it
+  - optionally, the semester's **Slot Timetable** .docx (Fall 2026-27 is built in)
+  - as a fallback, this tool's own canonical CSV (one row per class meeting)
+
+  Everything is parsed in the browser. SheetJS, the spreadsheet reader, is downloaded only when you open an .xlsx. [FORMAT.md](FORMAT.md) documents both university files cell by cell, including every irregularity in the Fall 2026-27 file and how the importer treats it.
+- **Sections:** the registration file has no section column. So each distinct theory-slot + lab-slot combination is one section, named by its slots (e.g. `A2 · L3+L4`), with the source spreadsheet rows listed so you can find it again.
 - **Clash rule:** two classes clash only if they're on the same day and their `[start, end)` intervals overlap.
   - A lab from 10:50–12:30 clashes with a theory class at 10:50–11:40 or 11:40–12:30, even though the slot names differ.
   - Back-to-back classes (10:00–10:50, then 10:50–11:40) don't clash.
@@ -145,11 +152,12 @@ npm test          # vitest
 npm run build     # typecheck + production build into dist/
 ```
 
-The only dev dependencies are Vite, Vitest and TypeScript. There are **no runtime dependencies**: the PNG export draws straight onto a canvas.
+The dev dependencies are Vite, Vitest, TypeScript and `@types/node`. The only runtime dependency is **SheetJS**, installed from the vendor's tarball on cdn.sheetjs.com rather than the unmaintained npm `xlsx`. It's lazy-loaded into its own chunk. The .docx reader is built in, and the PNG export draws straight onto a canvas.
 
 ```
 src/core/       pure logic (no DOM): model, time overlap, clash, solver, CGPA, curriculum
-src/import/     CSV parser + canonical timetable importer
+src/import/     CSV/zip/docx/xlsx readers, canonical CSV importer
+src/import/university/  registration-file importer + slot-grid parser (Fall 2026-27 grid built in)
 src/ui/         DOM views (text nodes only; file content is never parsed as HTML)
 tests/          vitest suites
 examples/       synthetic timetable + fictional curriculum
@@ -177,6 +185,12 @@ examples/       synthetic timetable + fictional curriculum
   - required average, with reachable, unreachable, exactly-at-max, guaranteed and no-remaining cases
   - custom scales
   - the what-if projection
+- **Real university files** (`tests/university.test.ts`, `tests/slotgrid.test.ts`):
+  - reads the actual `.docx` and `.xlsx` in `data/`
+  - checks every row is accounted for (read, skipped with a reason, or corrected)
+  - checks hand-counted section numbers per course
+  - checks real clashes: lab `L3+L4` over theory `D1`, and over `TC1` by a partial overlap
+  - checks that 12-hour times without AM/PM are read as afternoon
 - **Import, curriculum, state:** CSV edge cases, bad rows being rejected, slot-map lookups, basket matching, and the `localStorage` try/catch paths.
 
 ### Deploying
@@ -185,8 +199,8 @@ examples/       synthetic timetable + fictional curriculum
 
 ---
 
-## Known gap: the university's own file format
+## What the importer won't guess
 
-When this project was set up, the repository had no `data/` folder, so the university's real registration files haven't been seen yet. The tool deliberately **doesn't guess** their layout. Instead, it imports a documented canonical CSV. Once real files are committed to `data/`, [FORMAT.md](FORMAT.md) §1 lists what to record and where a dedicated importer goes. Until then, convert the file to the canonical CSV in a spreadsheet app.
+Rows where the file doesn't give class times are skipped and listed in the import summary, not guessed. [FORMAT.md](FORMAT.md) §1 names every such row in the Fall 2026-27 file.
 
 No university logos or branding are used.
