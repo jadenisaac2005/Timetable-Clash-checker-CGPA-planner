@@ -39,9 +39,9 @@ h1 { font-size: 1.35rem; margin: 18px 0 4px; }
 h2 { font-size: 1.05rem; margin: 0 0 10px; }
 h4 { margin: 10px 0 4px; font-size: 0.95rem; }
 p { margin: 6px 0; }
-.top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-bottom: 8px; }
+.top { padding-bottom: 4px; }
 .disclaimer { font-size: 0.8rem; color: var(--warn); background: var(--warn-bg); padding: 6px 10px; border-radius: 8px; }
-.tabs { display: flex; gap: 4px; margin-top: 10px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; gap: 4px; margin-top: 10px; border-bottom: 1px solid var(--border); overflow-x: auto; }
 .tabs button { background: none; border: 0; padding: 10px 14px; font: inherit; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .stack { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
